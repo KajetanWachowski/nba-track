@@ -76,7 +76,7 @@ export function ManualOddsForm({ games, books, initialGame }: { games: FormGame[
           });
           const j = await r.json();
           if (!r.ok) throw new Error(j.error);
-          setMsg({ ok: true, text: j.message });
+          setMsg({ ok: true, text: `${j.message} — przeliczam porównanie (kilka sekund)…` });
           setPrices({});
           router.refresh();
         } catch (err) {
@@ -145,9 +145,22 @@ export function ManualOddsForm({ games, books, initialGame }: { games: FormGame[
 
 export function DeleteManualButton({ q }: { q: string }) {
   const router = useRouter();
+  const [state, setState] = useState<"idle" | "busy" | "error">("idle");
   return (
-    <button type="button" className="text-xs text-ink-3 hover:text-neg" onClick={async () => { await fetch(`/api/manual-odds?${q}`, { method: "DELETE" }); router.refresh(); }}>
-      usuń
+    <button
+      type="button"
+      disabled={state === "busy"}
+      className={`text-xs ${state === "error" ? "text-neg" : "text-ink-3 hover:text-neg"}`}
+      onClick={async (e) => {
+        const row = (e.currentTarget as HTMLElement).closest("tr");
+        setState("busy");
+        const r = await fetch(`/api/manual-odds?${q}`, { method: "DELETE" });
+        if (!r.ok) return setState("error");
+        if (row) row.style.display = "none"; // immediate feedback; the comparison recalculates in the background
+        router.refresh();
+      }}
+    >
+      {state === "busy" ? "usuwam…" : state === "error" ? "błąd" : "usuń"}
     </button>
   );
 }

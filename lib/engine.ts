@@ -25,6 +25,7 @@ import { easternDay, fetchInjuries, fetchRoster, fetchSeasonLog, type Injury } f
 import { eventToOffers, fetchEventProps, fetchGameOdds, matchEvent, normName, oddsApiEnabled, type GameRef, type Offer } from "./providers/oddsapi";
 import { getGameLine, getGamesByDay, getPropLines, getTeams, type GameRow, type TeamRow } from "./store";
 import { syncSlate } from "./sync";
+import { getMeta, setMeta } from "./db";
 import { effectivePrice, getTaxSettings } from "./books";
 import { listManual, manualToOffers } from "./manual-odds";
 import { fetchPolishOffers, oddsPapiEnabled } from "./providers/oddspapi";
@@ -96,21 +97,26 @@ export interface SlateAnalysis {
   evidence: Record<"player" | "game", { proven: boolean; detail: string }>;
 }
 
-const slateCache = new Map<string, { at: number; v: Promise<SlateAnalysis> }>();
+const slateCache = new Map<string, { at: number; v: Promise<SlateAnalysis>; version: number }>();
 
-/** Drop cached analyses (after manual odds or settings change). */
+/**
+ * Drop cached analyses after manual odds or settings change. The version lives in the DB because
+ * API routes and pages can run in separate module instances, each with its own in-memory cache.
+ */
 export function invalidateSlate() {
   slateCache.clear();
+  setMeta("slateVersion", Date.now());
 }
 
 export function analyzeSlate(day = easternDay(), opts: { force?: boolean } = {}): Promise<SlateAnalysis> {
+  const version = getMeta<number>("slateVersion") ?? 0;
   const hit = slateCache.get(day);
-  if (hit && !opts.force && Date.now() - hit.at < 180_000) return hit.v;
+  if (hit && !opts.force && hit.version === version && Date.now() - hit.at < 180_000) return hit.v;
   const v = runSlate(day, opts.force ?? false).catch((e) => {
     slateCache.delete(day);
     throw e;
   });
-  slateCache.set(day, { at: Date.now(), v });
+  slateCache.set(day, { at: Date.now(), v, version });
   return v;
 }
 

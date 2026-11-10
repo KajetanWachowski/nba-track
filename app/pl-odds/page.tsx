@@ -135,7 +135,8 @@ export default async function PolishOdds({ searchParams }: { searchParams: Promi
 
       {manual.length > 0 && (
         <Card title="Wpisane ręcznie" className="mt-6">
-          <table className="num w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="num w-full min-w-[640px] whitespace-nowrap text-sm">
             <thead><tr className="label text-left"><th className="py-1">Mecz</th><th>Rynek</th><th>Linia</th><th>Bukmacher</th><th>Strona 1</th><th>Strona 2</th><th>Wpisano</th><th /></tr></thead>
             <tbody>
               {manual.map((m) => (
@@ -149,6 +150,7 @@ export default async function PolishOdds({ searchParams }: { searchParams: Promi
               ))}
             </tbody>
           </table>
+          </div>
         </Card>
       )}
     </>
