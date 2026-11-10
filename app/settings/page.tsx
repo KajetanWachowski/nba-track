@@ -6,10 +6,24 @@ import { ago, num } from "@/lib/format";
 import { getCalibration } from "@/lib/model/calibrate";
 import { getModelParams } from "@/lib/model/params";
 import { oddsApiEnabled } from "@/lib/providers/oddsapi";
+import { TaxToggle } from "@/components/TaxToggle";
+import { PL_BOOKS, getTaxSettings } from "@/lib/books";
+import { bookmakerMap, listBookmakers, oddsPapiEnabled } from "@/lib/providers/oddspapi";
 
 export const dynamic = "force-dynamic";
 
-export default function Settings() {
+export default async function Settings() {
+  const tax = getTaxSettings();
+  let papiBooks: Awaited<ReturnType<typeof listBookmakers>> = [];
+  let papiError: string | null = null;
+  if (oddsPapiEnabled()) {
+    try {
+      papiBooks = (await listBookmakers()).filter((b) => b.polish);
+    } catch (e) {
+      papiError = (e as Error).message;
+    }
+  }
+  const bmap = bookmakerMap();
   const db = getDb();
   const count = (sql: string) => (db.prepare(sql).get() as { n: number }).n;
   const lastFetch = (like: string) => (db.prepare("SELECT MAX(fetched_at) t FROM http_cache WHERE key LIKE ?").get(like) as { t: number | null }).t;
@@ -54,6 +68,33 @@ export default function Settings() {
             stats.nba.com is not used: it blocks non-browser clients. Cache TTLs — scoreboard {config.ttl.scoreboardToday}s, props {config.ttl.propsLive}s,
             injuries {config.ttl.injuries}s; finished games are cached permanently. If a source fails, the last good copy is shown and marked stale; nothing is invented.
           </p>
+        </Card>
+        <Card title="Polscy bukmacherzy (Superbet · Betclic · Betfan)">
+          <TaxToggle enabled={tax.enabled} exempt={tax.exempt} books={PL_BOOKS} rate={tax.rate} />
+          <div className="label mb-1 mt-5">OddsPapi</div>
+          {!oddsPapiEnabled() ? (
+            <p className="text-sm text-ink-2">
+              Wyłączone. Załóż konto na oddspapi.io (jest darmowy plan), wpisz <code>ODDSPAPI_KEY=…</code> do <code>.env.local</code> i zrestartuj aplikację.
+              Bez klucza kursy polskich bukmacherów wpisujesz ręcznie na stronie „Polskie kursy”.
+            </p>
+          ) : papiError ? (
+            <p className="text-sm text-neg">Błąd OddsPapi: {papiError} — sprawdź, czy klucz jest poprawny i aktywny.</p>
+          ) : (
+            <>
+              <p className="mb-2 text-sm text-ink-2">Polscy bukmacherzy widoczni dla Twojego klucza (✓ = pobierany przez aplikację):</p>
+              {papiBooks.length === 0 ? <p className="text-sm text-warn">Twój plan OddsPapi nie zwraca żadnego polskiego bukmachera.</p> : (
+                <ul className="space-y-1 text-sm">
+                  {papiBooks.map((b) => (
+                    <li key={b.slug}><span className={bmap.has(b.slug) ? "text-pos" : "text-ink-3"}>{bmap.has(b.slug) ? "✓" : "○"}</span> <code>{b.slug}</code> · {b.bookmakerName}{b.active ? "" : " (nieaktywny)"}</li>
+                  ))}
+                </ul>
+              )}
+              <p className="mt-2 text-xs text-ink-3">
+                Pobierane slugi (<code>ODDSPAPI_BOOKMAKERS</code>): {[...bmap].map(([slug, key]) => `${slug}→${key}`).join(", ")}. Jeśli slug na liście powyżej różni się, ustaw np.
+                <code> ODDSPAPI_BOOKMAKERS=superbet.pl:superbet,betclic.pl:betclic</code>. Nierozpoznane typy rynków są pomijane, nie zgadywane.
+              </p>
+            </>
+          )}
         </Card>
         <Card title="Database">
           <dl className="num grid grid-cols-2 gap-2 text-sm">

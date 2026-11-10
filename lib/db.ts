@@ -82,6 +82,14 @@ CREATE TABLE IF NOT EXISTS predictions (
   UNIQUE (game_id, market, subject_id, side, line, book, model_version)
 );
 
+-- Prices typed in by the user from a bookmaker's app/site (Polish books have no public API).
+-- For ml/spread: over_dec = home, under_dec = away; spread line is the HOME line.
+CREATE TABLE IF NOT EXISTS manual_odds (
+  game_id TEXT NOT NULL, market TEXT NOT NULL, subject_id TEXT NOT NULL, line REAL NOT NULL, book TEXT NOT NULL,
+  over_dec REAL, under_dec REAL, created_at INTEGER NOT NULL,
+  PRIMARY KEY (game_id, market, subject_id, line, book)
+);
+
 CREATE TABLE IF NOT EXISTS backtest_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT, created_at INTEGER NOT NULL, model_version TEXT NOT NULL,
   params TEXT NOT NULL, summary TEXT NOT NULL

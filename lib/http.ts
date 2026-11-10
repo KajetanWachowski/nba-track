@@ -22,6 +22,7 @@ interface FetchOpts {
   timeoutMs?: number;
   retries?: number;
   force?: boolean;
+  headers?: Record<string, string>;
 }
 
 const inflight = new Map<string, Promise<Fetched<unknown>>>();
@@ -55,7 +56,7 @@ async function doFetch<T>(url: string, key: string, opts: FetchOpts): Promise<Fe
     try {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 20000);
-      const res = await fetch(url, { signal: ctrl.signal, headers: { Accept: "application/json" } });
+      const res = await fetch(url, { signal: ctrl.signal, headers: { Accept: "application/json", ...(opts.headers ?? {}) } });
       clearTimeout(timer);
       if (res.status === 404) throw new DataUnavailableError(opts.source, "not found (404)", 404);
       if (res.status === 401 || res.status === 403)

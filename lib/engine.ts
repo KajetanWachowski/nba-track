@@ -25,6 +25,9 @@ import { easternDay, fetchInjuries, fetchRoster, fetchSeasonLog, type Injury } f
 import { eventToOffers, fetchEventProps, fetchGameOdds, matchEvent, normName, oddsApiEnabled, type GameRef, type Offer } from "./providers/oddsapi";
 import { getGameLine, getGamesByDay, getPropLines, getTeams, type GameRow, type TeamRow } from "./store";
 import { syncSlate } from "./sync";
+import { effectivePrice, getTaxSettings } from "./books";
+import { listManual, manualToOffers } from "./manual-odds";
+import { fetchPolishOffers, oddsPapiEnabled } from "./providers/oddspapi";
 import { logPredictions } from "./tracking";
 
 export const P_OUT: Record<string, number> = { OUT: 1, DOUBTFUL: 0.75, QUESTIONABLE: 0.35, "DAY-TO-DAY": 0.25, PROBABLE: 0.05 };
@@ -49,8 +52,11 @@ export interface BetEval {
   line: number | null;
   selection: string; // human-readable, e.g. "Over 11.5 Rebounds"
   book: string;
+  /** price used for EV: after the Polish stake tax when that setting is on */
   price: number;
-  offers: { book: string; dec: number; oppDec: number | null }[];
+  priceRaw: number;
+  taxed: boolean;
+  offers: { book: string; bookKey: string; dec: number; eff: number; oppDec: number | null }[];
   impliedProb: number;
   marketProb: number | null;
   marketProbSource: string;
@@ -91,6 +97,11 @@ export interface SlateAnalysis {
 }
 
 const slateCache = new Map<string, { at: number; v: Promise<SlateAnalysis> }>();
+
+/** Drop cached analyses (after manual odds or settings change). */
+export function invalidateSlate() {
+  slateCache.clear();
+}
 
 export function analyzeSlate(day = easternDay(), opts: { force?: boolean } = {}): Promise<SlateAnalysis> {
   const hit = slateCache.get(day);
@@ -228,6 +239,29 @@ async function runSlate(day: string, force: boolean): Promise<SlateAnalysis> {
     sources.push({ name: "The Odds API (multi-book)", fetchedAt: null, ok: false, note: "ODDS_API_KEY not set — DraftKings only" });
   }
 
+  // ---- Polish bookmakers: OddsPapi feed (optional) + manually entered prices ----
+  const homeAway = new Map(games.map((g) => [g.id, { home: g.home_id, away: g.away_id }]));
+  const manual = manualToOffers(listManual(games.map((g) => g.id)), homeAway);
+  const manualKeys = new Set(manual.map((o) => `${o.gameId}|${o.market}|${o.subjectId}|${o.side}|${o.line ?? ""}|${o.book}`));
+  if (oddsPapiEnabled()) {
+    try {
+      const refs: GameRef[] = games.filter((g) => g.state === "pre").map((g) => ({ gameId: g.id, date: g.date, homeId: g.home_id, awayId: g.away_id, homeName: teams.get(g.home_id)?.name ?? "", awayName: teams.get(g.away_id)?.name ?? "" }));
+      const playerIndex = new Map<string, string>();
+      for (const [id, n] of rosterName) playerIndex.set(normName(n), id);
+      const r = await fetchPolishOffers(refs, playerIndex);
+      for (const o of r.offers)
+        if (!manualKeys.has(`${o.gameId}|${o.market}|${o.subjectId}|${o.side}|${o.line ?? ""}|${o.book}`)) // manual entry wins
+          offers.push({ ...o, kind: isGameMarket(o.market) ? "game" : o.side === "yes" ? "yes" : "ou", openLine: null, openPrice: null, sideCheck: "labeled" });
+      sources.push({ name: "OddsPapi (polscy bukmacherzy)", fetchedAt: r.fetchedAt, ok: true, note: `${r.books.join(", ") || "no Polish books returned"} · ${r.matchedFixtures} games` });
+    } catch (e) {
+      sources.push({ name: "OddsPapi (polscy bukmacherzy)", fetchedAt: null, ok: false, note: (e as Error).message });
+      warnings.push(`OddsPapi failed: ${(e as Error).message}`);
+    }
+  }
+  for (const o of manual) offers.push({ ...o, openLine: null, openPrice: null, sideCheck: "manual" });
+  if (manual.length) sources.push({ name: "Ręcznie wpisane kursy", fetchedAt: Math.max(...manual.map((o) => Date.parse(o.lastUpdate ?? "") || 0)), ok: true });
+  const tax = getTaxSettings();
+
   // typical overround of two-way prop markets on this slate → used to de-vig one-way markets
   const ors = offers.filter((o) => o.kind === "ou" && o.side === "over" && o.oppDec).map((o) => overround([o.dec, o.oppDec!]));
   const typicalOverround = ors.length ? ors.sort((a, b) => a - b)[ors.length >> 1] : 1.05;
@@ -293,7 +327,10 @@ async function runSlate(day: string, force: boolean): Promise<SlateAnalysis> {
   for (const [k, grp] of groups) {
     const g = gameById.get(grp[0].gameId);
     if (!g || g.state !== "pre") continue;
-    const best = grp.reduce((a, b) => (b.dec > a.dec ? b : a));
+    // best price after the optional Polish stake tax (the price you would actually be paid)
+    const eff = (o: (typeof grp)[number]) => effectivePrice(o.book, o.dec, tax);
+    const best = grp.reduce((a, b) => (eff(b) > eff(a) ? b : a));
+    const bestEff = eff(best);
     const sharp = grp.find((o) => o.book === "pinnacle" && o.oppDec) ?? grp.find((o) => o.book === "draftkings" && o.oppDec) ?? grp.find((o) => o.oppDec);
     let marketProb: number | null = null;
     let marketProbSource = "";
@@ -301,15 +338,15 @@ async function runSlate(day: string, force: boolean): Promise<SlateAnalysis> {
       marketProb = noVig([sharp.dec, sharp.oppDec])[0];
       marketProbSource = `${sharp.bookTitle} two-way, vig removed (power method)`;
     } else {
-      marketProb = Math.min(0.99, impliedProb(best.dec) / typicalOverround);
+      marketProb = Math.min(0.99, impliedProb(sharp?.dec ?? best.dec) / typicalOverround);
       marketProbSource = `one-way market — vig estimated at ${((typicalOverround - 1) * 100).toFixed(1)}% from this slate`;
     }
     const e = isGameMarket(best.market)
       ? evalGame(best, g, gameProj.get(g.id) ?? null, teams, cal.game, marketProb)
       : evalPlayer(best, g, projections.get(`${g.id}|${best.subjectId}`), ctx, teams, cal.player, marketProb, injOf, injuriesAvailable, subjectTeam.get(`${g.id}|${best.subjectId}`));
     if (!e) continue;
-    const implied = impliedProb(best.dec);
-    const ev = expectedValue(e.modelProb, best.dec);
+    const implied = impliedProb(bestEff);
+    const ev = expectedValue(e.modelProb, bestEff);
     const id = k.replaceAll("|", "_");
     const bet: BetEval = {
       ...e,
@@ -323,8 +360,10 @@ async function runSlate(day: string, force: boolean): Promise<SlateAnalysis> {
       side: best.side,
       line: best.line,
       book: best.bookTitle,
-      price: best.dec,
-      offers: grp.map((o) => ({ book: o.bookTitle, dec: o.dec, oppDec: o.oppDec })).sort((a, b) => b.dec - a.dec),
+      price: bestEff,
+      priceRaw: best.dec,
+      taxed: bestEff !== best.dec,
+      offers: grp.map((o) => ({ book: o.bookTitle, bookKey: o.book, dec: o.dec, eff: eff(o), oppDec: o.oppDec })).sort((a, b) => b.eff - a.eff),
       impliedProb: implied,
       marketProb,
       marketProbSource,
@@ -332,7 +371,7 @@ async function runSlate(day: string, force: boolean): Promise<SlateAnalysis> {
       edgeVsFair: marketProb === null ? null : e.modelProb - marketProb,
       ev,
       fairOdds: fairOdds(e.modelProb),
-      kellyQuarter: kelly(e.modelProb, best.dec) / 4,
+      kellyQuarter: kelly(e.modelProb, bestEff) / 4,
       openLine: best.openLine,
       openPrice: best.openPrice,
       isValue: false,

@@ -8,6 +8,10 @@ export const config = {
   oddsApiPropMarkets:
     process.env.ODDS_API_PROP_MARKETS ||
     "player_points,player_rebounds,player_assists,player_points_rebounds_assists,player_threes,player_turnovers",
+  /** OddsPapi (https://oddspapi.io) — optional feed that includes some Polish bookmakers. */
+  oddsPapiKey: process.env.ODDSPAPI_KEY || "",
+  /** "oddspapiSlug:localKey" pairs; verify slugs on the Settings page (list of books your key can see). */
+  oddsPapiBookmakers: process.env.ODDSPAPI_BOOKMAKERS || "superbet.pl:superbet,betclic.pl:betclic,betfan:betfan",
   /** Cache TTLs in seconds. Finished games are immutable and cached forever. */
   ttl: {
     scoreboardToday: 120,
@@ -17,6 +21,7 @@ export const config = {
     teams: 7 * 86400,
     priorSeasonLog: 30 * 86400,
     oddsApi: 1800,
+    oddsPapi: 300,
   },
   /** ESPN numeric season id: 2027 == the 2026-27 season. */
   season: Number(process.env.NBA_SEASON || 2027),

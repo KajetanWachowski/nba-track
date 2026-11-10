@@ -9,6 +9,7 @@ export const NAV = [
   { href: "/matchups", label: "Matchup Analysis" },
   { href: "/value-bets", label: "Value Bets" },
   { href: "/odds", label: "Odds Comparison" },
+  { href: "/pl-odds", label: "Polskie kursy" },
   { href: "/history", label: "Historical Performance" },
   { href: "/settings", label: "Settings" },
 ];
