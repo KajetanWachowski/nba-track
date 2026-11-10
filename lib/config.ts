@@ -8,10 +8,10 @@ export const config = {
   oddsApiPropMarkets:
     process.env.ODDS_API_PROP_MARKETS ||
     "player_points,player_rebounds,player_assists,player_points_rebounds_assists,player_threes,player_turnovers",
-  /** OddsPapi (https://oddspapi.io) — optional feed that includes some Polish bookmakers. */
+  /** OddsPapi v4 (https://oddspapi.io) — optional feed; covers Superbet PL (props + game lines) and Fortuna PL (game lines). */
   oddsPapiKey: process.env.ODDSPAPI_KEY || "",
   /** "oddspapiSlug:localKey" pairs; verify slugs on the Settings page (list of books your key can see). */
-  oddsPapiBookmakers: process.env.ODDSPAPI_BOOKMAKERS || "superbet.pl:superbet,betclic.pl:betclic,betfan:betfan",
+  oddsPapiBookmakers: process.env.ODDSPAPI_BOOKMAKERS || "superbet.pl:superbet",
   /** Cache TTLs in seconds. Finished games are immutable and cached forever. */
   ttl: {
     scoreboardToday: 120,

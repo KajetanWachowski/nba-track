@@ -85,13 +85,13 @@ export default async function Settings() {
               {papiBooks.length === 0 ? <p className="text-sm text-warn">Twój plan OddsPapi nie zwraca żadnego polskiego bukmachera.</p> : (
                 <ul className="space-y-1 text-sm">
                   {papiBooks.map((b) => (
-                    <li key={b.slug}><span className={bmap.has(b.slug) ? "text-pos" : "text-ink-3"}>{bmap.has(b.slug) ? "✓" : "○"}</span> <code>{b.slug}</code> · {b.bookmakerName}{b.active ? "" : " (nieaktywny)"}</li>
+                    <li key={b.slug}><span className={bmap.has(b.slug) ? "text-pos" : "text-ink-3"}>{bmap.has(b.slug) ? "✓" : "○"}</span> <code>{b.slug}</code> · {b.bookmakerName}{b.cloneOf ? ` (kopia ${b.cloneOf})` : ""}</li>
                   ))}
                 </ul>
               )}
               <p className="mt-2 text-xs text-ink-3">
                 Pobierane slugi (<code>ODDSPAPI_BOOKMAKERS</code>): {[...bmap].map(([slug, key]) => `${slug}→${key}`).join(", ")}. Jeśli slug na liście powyżej różni się, ustaw np.
-                <code> ODDSPAPI_BOOKMAKERS=superbet.pl:superbet,betclic.pl:betclic</code>. Nierozpoznane typy rynków są pomijane, nie zgadywane.
+                <code> ODDSPAPI_BOOKMAKERS=superbet.pl:superbet,efortuna.pl:fortuna</code>. Betclic PL i Betfan nie są w OddsPapi — wpisuj je ręcznie. Nierozpoznane typy rynków są pomijane, nie zgadywane.
               </p>
             </>
           )}

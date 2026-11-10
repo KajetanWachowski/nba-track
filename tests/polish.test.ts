@@ -32,16 +32,18 @@ describe("manual odds expansion", () => {
   });
 });
 
-describe("OddsPapi market mapping", () => {
-  const m = (marketType: string, playerProp = true, period = "result", marketName = "") =>
-    ({ marketId: 1, marketLength: 2, playerProp, handicap: 0, period, marketType, marketName, outcomes: [] });
-  it("maps game and player markets, rejects unknown/period markets", () => {
-    expect(canonicalMarket(m("moneyline", false))).toBe("ml");
-    expect(canonicalMarket(m("totals", false))).toBe("total");
-    expect(canonicalMarket(m("totals", false, "p1"))).toBeNull();
-    expect(canonicalMarket(m("players-points"))).toBe("pts");
-    expect(canonicalMarket(m("players-points-rebounds-assists"))).toBe("pra");
-    expect(canonicalMarket(m("players-threes-made"))).toBe("fg3m");
-    expect(canonicalMarket(m("players-first-basket"))).toBeNull();
+describe("OddsPapi v4 market mapping (types seen in the live Superbet PL feed)", () => {
+  const m = (marketType: string, period = "result") => ({ marketType, period, playerProp: marketType.startsWith("player") });
+  it("maps full-game markets and rejects quarters and unknown props", () => {
+    expect(canonicalMarket(m("moneyline"))).toEqual({ market: "ml", kind: "game" });
+    expect(canonicalMarket(m("spreads"))).toEqual({ market: "spread", kind: "game" });
+    expect(canonicalMarket(m("totals", "p1"))).toBeNull();
+    expect(canonicalMarket(m("playertotals-points"))).toEqual({ market: "pts", kind: "ou" });
+    expect(canonicalMarket(m("playertotals-ptsassreb"))).toEqual({ market: "pra", kind: "ou" });
+    expect(canonicalMarket(m("playertotals-assreb"))).toEqual({ market: "ra", kind: "ou" });
+    expect(canonicalMarket(m("playertotals-3pointers"))).toEqual({ market: "fg3m", kind: "ou" });
+    expect(canonicalMarket(m("players-assists"))).toEqual({ market: "ast", kind: "milestone" });
+    expect(canonicalMarket(m("playertotals-points", "p1"))).toBeNull();
+    expect(canonicalMarket(m("players-firstpoint"))).toBeNull();
   });
 });

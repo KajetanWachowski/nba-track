@@ -13,8 +13,11 @@ export const PL_BOOKS: BookInfo[] = [
   { key: "betfan", title: "Betfan", country: "pl" },
 ];
 
-export const bookTitle = (key: string) => PL_BOOKS.find((b) => b.key === key)?.title ?? key;
-export const isPolishBook = (key: string) => PL_BOOKS.some((b) => b.key === key.toLowerCase());
+/** Polish books that can also arrive from OddsPapi but are not in the manual-entry form. */
+const EXTRA_PL: BookInfo[] = [{ key: "fortuna", title: "Fortuna", country: "pl" }];
+
+export const bookTitle = (key: string) => [...PL_BOOKS, ...EXTRA_PL].find((b) => b.key === key)?.title ?? key;
+export const isPolishBook = (key: string) => [...PL_BOOKS, ...EXTRA_PL].some((b) => b.key === key.toLowerCase());
 
 /**
  * Polish licensed bookmakers deduct a 12% turnover tax from the stake, so a price d pays as if it

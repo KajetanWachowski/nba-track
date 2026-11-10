@@ -1,19 +1,26 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /**
- * OddsPapi v5 (https://docs.oddspapi.io) — optional feed used here for Polish bookmakers.
- * Auth: X-API-Key header (ODDSPAPI_KEY). Endpoints used: /bookmakers, /fixtures, /markets,
- * /players, /fixtures/odds. Odds are keyed by frozen outcome ids; /markets decodes them into
- * marketType / period / handicap / side, and /players resolves playerId → name.
+ * OddsPapi v4 (https://api.oddspapi.io/v4) — optional feed used here for Polish bookmakers.
+ * Auth: `apiKey` query parameter (ODDSPAPI_KEY); the key never enters the cache key or logs.
  *
- * Coverage of Superbet / Betclic / Betfan depends on the OddsPapi plan and is NOT guaranteed:
- * the Settings page lists the Polish books the configured key can actually see.
+ * Verified against live responses (2026-11-10): Superbet PL (`superbet.pl`) publishes NBA
+ * moneyline/spreads/totals and player props — O/U (`playertotals-*`) and "N+" ladders
+ * (`players-*`). Fortuna PL (`efortuna.pl`) has game lines only. Betclic PL and Betfan are not
+ * in OddsPapi (enter them manually).
+ *
+ * Shapes used:
+ *   /bookmakers                      → [{ slug, bookmakerName, liveOdds, cloneOf }]
+ *   /participants?sportId=11         → { [participantId]: name }
+ *   /markets?sportId=11              → [{ marketId, marketType, period, handicap, playerProp, outcomes[{outcomeId,outcomeName}] }]
+ *   /fixtures?tournamentId=132&from&to → [{ fixtureId, participant1Id (home), participant2Id, startTime, statusId }]
+ *   /odds?fixtureId&bookmakers       → { bookmakerOdds: { [slug]: { markets: { [marketId]: { outcomes: { [outcomeId]: { players: { [playerId]: { price, active, playerName } } } } } } } } }
  */
 import { config } from "../config";
 import { fetchJson } from "../http";
 import type { Market } from "../markets";
 import { normName, type GameRef, type Offer } from "./oddsapi";
 
-const BASE = "https://v5.oddspapi.io/en";
+const BASE = "https://api.oddspapi.io/v4";
 const NBA_SPORT = 11;
 const NBA_TOURNAMENT = 132;
 
@@ -37,37 +44,28 @@ export function bookmakerMap(): Map<string, string> {
 
 async function get<T>(path: string, params: Record<string, string | number>, ttl: number): Promise<T> {
   const q = new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)]));
-  const r = await fetchJson<T>(`${BASE}${path}?${q}`, {
-    ttl,
-    source: `OddsPapi ${path}`,
-    key: `oddspapi:${path}?${q}`, // the key travels in a header, never in the cache key
-    headers: { "X-API-Key": config.oddsPapiKey },
-  });
+  const keyed = new URLSearchParams(q);
+  keyed.set("apiKey", config.oddsPapiKey);
+  const r = await fetchJson<T>(`${BASE}${path}?${keyed}`, { ttl, source: `OddsPapi ${path}`, key: `oddspapi4:${path}?${q}` });
   return r.data;
 }
 
 export interface PapiBookmaker {
   slug: string;
   bookmakerName: string;
-  active: boolean;
-  domain?: string;
-  availableCountries?: string[];
+  liveOdds?: boolean;
+  cloneOf?: string | null;
 }
 
-/** Bookmakers visible to this key; `polish` = available in Poland or a Polish brand. */
+/** Bookmakers visible to this key; `polish` = Polish site/brand. */
 export async function listBookmakers(): Promise<(PapiBookmaker & { polish: boolean })[]> {
   const rows = await get<PapiBookmaker[]>("/bookmakers", {}, 6 * 3600);
-  return rows.map((b) => ({
-    ...b,
-    polish:
-      (b.availableCountries ?? []).map((c) => c.toLowerCase()).includes("pl") ||
-      /\.pl\b|superbet|betclic|betfan|\bsts\b|fortuna|lvbet|etoto|totolotek|forbet|betcris/i.test(`${b.slug} ${b.bookmakerName} ${b.domain ?? ""}`),
-  }));
+  return rows.map((b) => ({ ...b, polish: /\.pl\b|\bPL\b|betclic|betfan|\bsts\b|lvbet|etoto|totolotek|forbet/i.test(`${b.slug} ${b.bookmakerName}`) }));
 }
 
-interface PapiMarket {
+export interface PapiMarket {
   marketId: number;
-  marketLength: number;
+  marketLength?: number;
   playerProp: boolean;
   handicap: number;
   period: string;
@@ -76,149 +74,145 @@ interface PapiMarket {
   outcomes: { outcomeId: number; outcomeName: string }[];
 }
 
-let marketCache: { at: number; byOutcome: Map<number, { m: PapiMarket; name: string }> } | null = null;
-
+let marketCache: { at: number; byId: Map<number, PapiMarket> } | null = null;
 async function marketIndex() {
-  if (marketCache && Date.now() - marketCache.at < 6 * 3600 * 1000) return marketCache.byOutcome;
+  if (marketCache && Date.now() - marketCache.at < 6 * 3600 * 1000) return marketCache.byId;
   const markets = await get<PapiMarket[]>("/markets", { sportId: NBA_SPORT }, 24 * 3600);
-  const byOutcome = new Map<number, { m: PapiMarket; name: string }>();
-  for (const m of markets) for (const o of m.outcomes ?? []) byOutcome.set(o.outcomeId, { m, name: o.outcomeName });
-  marketCache = { at: Date.now(), byOutcome };
-  return byOutcome;
+  marketCache = { at: Date.now(), byId: new Map(markets.map((m) => [m.marketId, m])) };
+  return marketCache.byId;
 }
 
+const PROP_TYPES: Record<string, Market> = {
+  points: "pts", rebounds: "reb", assists: "ast", "3pointers": "fg3m", turnovers: "tov", steals: "stl", blocks: "blk",
+  ptsassreb: "pra", ptsreb: "pr", ptsass: "pa", assreb: "ra", stlblk: "stocks", blkstl: "stocks",
+  doubledouble: "dd", tripledouble: "td",
+};
+
 /**
- * Map an OddsPapi market to a canonical market. Game markets use documented types; player-prop
- * type names are matched on marketType/marketName text (OddsPapi's taxonomy is open), and anything
- * unrecognised is skipped rather than guessed.
+ * Canonical market for an OddsPapi market, or null. Only full-game markets (incl. overtime,
+ * period "result") are used; quarter/half markets and unknown prop types are skipped.
+ *   kind "ou"        — two-way line (playertotals-*, totals, spreads, moneyline)
+ *   kind "milestone" — one-way "N+" ladder (players-*), each outcome is its own threshold
  */
-export function canonicalMarket(m: PapiMarket): Market | null {
-  if (!["result", "fulltime+overtime", "fulltime"].includes(m.period) && !m.playerProp) return null;
-  if (m.marketType === "moneyline") return "ml";
-  if (m.marketType === "spreads") return "spread";
-  if (m.marketType === "totals") return "total";
-  if (!m.playerProp) return null;
-  const t = `${m.marketType} ${m.marketName ?? ""}`.toLowerCase().replace(/[_\s]+/g, "-");
-  const has = (w: string) => t.includes(w);
-  const pts = has("point"), reb = has("rebound"), ast = has("assist");
-  if (pts && reb && ast) return "pra";
-  if (pts && reb) return "pr";
-  if (pts && ast) return "pa";
-  if (reb && ast) return "ra";
-  if (has("double-double")) return "dd";
-  if (has("triple-double")) return "td";
-  if (has("three") || has("3-point") || has("3pt")) return "fg3m";
-  if (has("steal") && has("block")) return "stocks";
-  if (pts) return "pts";
-  if (reb) return "reb";
-  if (ast) return "ast";
-  if (has("steal")) return "stl";
-  if (has("block")) return "blk";
-  if (has("turnover")) return "tov";
+export function canonicalMarket(m: Pick<PapiMarket, "marketType" | "period" | "playerProp">): { market: Market; kind: "ou" | "milestone" | "game" } | null {
+  if (m.period !== "result") return null;
+  if (m.marketType === "moneyline") return { market: "ml", kind: "game" };
+  if (m.marketType === "spreads") return { market: "spread", kind: "game" };
+  if (m.marketType === "totals") return { market: "total", kind: "game" };
+  const ou = m.marketType.match(/^playertotals-(.+)$/);
+  if (ou && PROP_TYPES[ou[1]]) return { market: PROP_TYPES[ou[1]], kind: "ou" };
+  const ms = m.marketType.match(/^players-(.+)$/);
+  if (ms && PROP_TYPES[ms[1]]) return { market: PROP_TYPES[ms[1]], kind: "milestone" };
   return null;
 }
 
+export type PapiOffer = Offer & { kind: "ou" | "milestone" | "yes" | "game" };
+
 export interface PapiResult {
-  offers: Offer[];
+  offers: PapiOffer[];
   matchedFixtures: number;
   skippedMarkets: number;
+  /** player prices dropped because the player is not on either team's roster (feed mix-ups) */
+  foreignPlayers: number;
   books: string[];
   fetchedAt: number;
 }
 
-/**
- * Polish-book offers for the given ESPN games. Player names are matched to ESPN athletes through
- * the supplied index (normalised "first last"); OddsPapi lists names as "Last, First".
- */
-export async function fetchPolishOffers(games: GameRef[], playerIndex: Map<string, string>): Promise<PapiResult> {
+const flipName = (s: string) => (s.includes(",") ? s.split(",").map((x) => x.trim()).reverse().join(" ") : s);
+const titleOf = (key: string) => ({ superbet: "Superbet", betclic: "Betclic", betfan: "Betfan", fortuna: "Fortuna" })[key] ?? key;
+
+/** Polish-book offers for the given ESPN games; players are matched by name to the two teams' rosters. */
+export async function fetchPolishOffers(games: GameRef[], playerIndex: Map<string, string>, rosterTeam?: Map<string, string>): Promise<PapiResult> {
+  const result: PapiResult = { offers: [], matchedFixtures: 0, skippedMarkets: 0, foreignPlayers: 0, books: [], fetchedAt: Date.now() };
+  if (!games.length) return result;
   const bmap = bookmakerMap();
-  const slugs = [...bmap.keys()].join(",");
-  const out: Offer[] = [];
-  let skipped = 0;
-  if (!games.length) return { offers: out, matchedFixtures: 0, skippedMarkets: 0, books: [], fetchedAt: Date.now() };
-  const from = Math.floor(Math.min(...games.map((g) => Date.parse(g.date))) / 1000) - 6 * 3600;
-  const to = Math.floor(Math.max(...games.map((g) => Date.parse(g.date))) / 1000) + 6 * 3600;
-  const fixtures = await get<any[]>("/fixtures", { sportId: NBA_SPORT, tournamentId: NBA_TOURNAMENT, startTimeFrom: from, startTimeTo: to }, 600);
-  const index = await marketIndex();
+  const days = games.map((g) => g.date.slice(0, 10)).sort();
+  const addDay = (d: string, n: number) => new Date(Date.parse(d) + n * 86400000).toISOString().slice(0, 10);
+  const [participants, fixtures, markets] = await Promise.all([
+    get<Record<string, string>>("/participants", { sportId: NBA_SPORT, tournamentId: NBA_TOURNAMENT }, 7 * 86400),
+    get<any[]>("/fixtures", { tournamentId: NBA_TOURNAMENT, from: addDay(days[0], -1), to: addDay(days[days.length - 1], 1) }, 600),
+    marketIndex(),
+  ]);
   const books = new Set<string>();
-  let matched = 0;
   for (const f of fixtures) {
-    const p = f.participants ?? {};
-    // OddsPapi: participant1 = home (first-listed), participant2 = away
+    if (f.statusId !== 0) continue;
+    const home = participants[String(f.participant1Id)] ?? "";
+    const away = participants[String(f.participant2Id)] ?? "";
     const g = games.find(
-      (x) =>
-        normName(x.homeName) === normName(p.participant1Name ?? "") &&
-        normName(x.awayName) === normName(p.participant2Name ?? "") &&
-        Math.abs(Date.parse(x.date) / 1000 - f.startTime) < 12 * 3600,
+      (x) => normName(x.homeName) === normName(home) && normName(x.awayName) === normName(away) && Math.abs(Date.parse(x.date) - Date.parse(f.startTime)) < 12 * 3600 * 1000,
     );
     if (!g) continue;
-    matched++;
-    const odds = await get<any>("/fixtures/odds", { fixtureId: f.fixtureId, bookmakers: slugs }, config.ttl.oddsPapi);
-    const playerIds = new Set<number>();
-    for (const bk of Object.values<any>(odds.odds ?? {})) for (const q of Object.values<any>(bk)) if (q.playerId) playerIds.add(q.playerId);
-    const players = new Map<number, string>();
-    if (playerIds.size) {
-      const ids = [...playerIds];
-      for (let i = 0; i < ids.length; i += 100) {
-        const rows = await get<{ playerId: number; playerName: string }[]>("/players", { playerIds: ids.slice(i, i + 100).join(",") }, 24 * 3600);
-        for (const r of rows) players.set(r.playerId, r.playerName);
-      }
-    }
-    for (const [slug, quotes] of Object.entries<any>(odds.odds ?? {})) {
+    result.matchedFixtures++;
+    const odds = await get<any>("/odds", { fixtureId: f.fixtureId, bookmakers: [...bmap.keys()].join(",") }, config.ttl.oddsPapi);
+    for (const [slug, bk] of Object.entries<any>(odds.bookmakerOdds ?? {})) {
+      if (!bk.bookmakerIsActive || bk.suspended) continue;
       const key = bmap.get(slug) ?? slug;
-      const rotated = Boolean(odds.bookmakers?.[slug]?.participantsRotated);
-      // group quotes by (marketId, playerId) so both sides of a line are paired
-      const groups = new Map<string, { m: PapiMarket; sides: Map<string, number> }>();
-      for (const q of Object.values<any>(quotes)) {
-        if (!q.active) continue;
-        const hit = index.get(q.outcomeId);
-        if (!hit) continue;
-        const k = `${hit.m.marketId}|${q.playerId}`;
-        if (!groups.has(k)) groups.set(k, { m: hit.m, sides: new Map() });
-        groups.get(k)!.sides.set(hit.name.toLowerCase(), q.price);
-      }
-      for (const [k, { m, sides }] of groups) {
-        const market = canonicalMarket(m);
-        if (!market) {
-          skipped++;
+      const mk = (market: Market, subjectId: string, side: Offer["side"], line: number | null, dec: number, opp: number | null, kind: PapiOffer["kind"]): PapiOffer => ({
+        gameId: g.gameId, market, subjectId, side, line, book: key, bookTitle: titleOf(key), dec, oppDec: opp, lastUpdate: null, kind,
+      });
+      for (const [mid, m] of Object.entries<any>(bk.markets ?? {})) {
+        const meta = markets.get(Number(mid));
+        const cm = meta ? canonicalMarket(meta) : null;
+        if (!meta || !cm) {
+          result.skippedMarkets++;
           continue;
         }
-        books.add(key);
-        const playerId = Number(k.split("|")[1]);
-        const mk = (subjectId: string, side: Offer["side"], line: number | null, dec: number, opp: number | null): Offer => ({
-          gameId: g.gameId, market, subjectId, side, line, book: key, bookTitle: titleOf(key), dec, oppDec: opp, lastUpdate: null,
-        });
-        const s1 = sides.get("1") ?? sides.get("home"), s2 = sides.get("2") ?? sides.get("away");
-        const over = sides.get("over"), under = sides.get("under"), yes = sides.get("yes");
-        if (market === "ml" && s1 && s2) {
-          const [h, a] = rotated ? [s2, s1] : [s1, s2];
-          out.push(mk(g.homeId, "home", null, h, a), mk(g.awayId, "away", null, a, h));
-        } else if (market === "spread" && s1 && s2) {
-          // handicap is quoted for participant 1 (home)
-          const [h, a] = rotated ? [s2, s1] : [s1, s2];
-          out.push(mk(g.homeId, "home", m.handicap, h, a), mk(g.awayId, "away", -m.handicap, a, h));
-        } else if (market === "total" && over && under) {
-          out.push(mk("game", "over", m.handicap, over, under), mk("game", "under", m.handicap, under, over));
-        } else if (playerId) {
-          const raw = players.get(playerId) ?? "";
-          const name = raw.includes(",") ? raw.split(",").map((s) => s.trim()).reverse().join(" ") : raw;
-          const athleteId = playerIndex.get(normName(name));
-          if (!athleteId) {
-            skipped++;
-            continue;
+        const nameOf = new Map(meta.outcomes.map((o) => [String(o.outcomeId), o.outcomeName]));
+        // price[outcomeName][playerId]
+        const price = new Map<string, Map<string, { p: number; name: string | null }>>();
+        for (const [oid, o] of Object.entries<any>(m.outcomes ?? {})) {
+          const on = nameOf.get(oid);
+          if (!on) continue;
+          for (const [pid, q] of Object.entries<any>(o.players ?? {})) {
+            if (!q.active || !(q.price > 1)) continue;
+            if (!price.has(on)) price.set(on, new Map());
+            price.get(on)!.set(pid, { p: q.price, name: q.playerName ?? null });
           }
-          if (yes) out.push(mk(athleteId, "yes", 0.5, yes, sides.get("no") ?? null));
-          else if (over || under) {
-            if (over) out.push(mk(athleteId, "over", m.handicap, over, under ?? null));
-            if (under) out.push(mk(athleteId, "under", m.handicap, under, over ?? null));
+        }
+        if (!price.size) continue;
+        books.add(key);
+        if (cm.kind === "game") {
+          const p1 = price.get("1")?.get("0")?.p, p2 = price.get("2")?.get("0")?.p;
+          const ov = price.get("Over")?.get("0")?.p, un = price.get("Under")?.get("0")?.p;
+          if (cm.market === "ml" && p1 && p2) result.offers.push(mk("ml", g.homeId, "home", null, p1, p2, "game"), mk("ml", g.awayId, "away", null, p2, p1, "game"));
+          // spreads: handicap is participant 1's (home) line; outcome "2" takes the opposite line
+          if (cm.market === "spread" && p1 && p2) result.offers.push(mk("spread", g.homeId, "home", meta.handicap, p1, p2, "game"), mk("spread", g.awayId, "away", -meta.handicap, p2, p1, "game"));
+          if (cm.market === "total" && ov && un) result.offers.push(mk("total", "game", "over", meta.handicap, ov, un, "game"), mk("total", "game", "under", meta.handicap, un, ov, "game"));
+          continue;
+        }
+        const athleteOf = (pid: string, name: string | null): string | null => {
+          if (pid === "0" || !name) return null;
+          const id = playerIndex.get(normName(flipName(name)));
+          if (!id || (rosterTeam && ![g.homeId, g.awayId].includes(rosterTeam.get(id) ?? ""))) {
+            result.foreignPlayers++;
+            return null;
+          }
+          return id;
+        };
+        if (cm.kind === "ou") {
+          const overs = price.get("Over") ?? new Map(), unders = price.get("Under") ?? new Map();
+          for (const pid of new Set([...overs.keys(), ...unders.keys()])) {
+            const o = overs.get(pid), u = unders.get(pid);
+            const id = athleteOf(pid, o?.name ?? u?.name ?? null);
+            if (!id) continue;
+            if (o) result.offers.push(mk(cm.market, id, "over", meta.handicap, o.p, u?.p ?? null, "ou"));
+            if (u) result.offers.push(mk(cm.market, id, "under", meta.handicap, u.p, o?.p ?? null, "ou"));
+          }
+        } else {
+          // "N+" ladder: each outcome is a one-way bet on at least N → over N − 0.5
+          for (const [on, byPlayer] of price) {
+            const n = on.match(/^(\d+)\+$/);
+            if (!n) continue;
+            for (const [pid, q] of byPlayer) {
+              const id = athleteOf(pid, q.name);
+              if (id) result.offers.push(mk(cm.market, id, "over", Number(n[1]) - 0.5, q.p, null, "milestone"));
+            }
           }
         }
       }
     }
   }
-  return { offers: out, matchedFixtures: matched, skippedMarkets: skipped, books: [...books], fetchedAt: Date.now() };
-}
-
-function titleOf(key: string) {
-  return { superbet: "Superbet", betclic: "Betclic", betfan: "Betfan" }[key] ?? key;
+  result.books = [...books];
+  result.fetchedAt = Date.now();
+  return result;
 }

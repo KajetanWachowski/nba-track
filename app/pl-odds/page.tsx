@@ -14,9 +14,8 @@ import { getTeams } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
-const COLS = [{ key: "draftkings", title: "DraftKings" }, ...PL_BOOKS];
 
-export default async function PolishOdds({ searchParams }: { searchParams: Promise<{ day?: string; game?: string }> }) {
+export default async function PolishOdds({ searchParams }: { searchParams: Promise<{ day?: string; game?: string; type?: string; market?: string }> }) {
   const sp = await searchParams;
   const day = sp.day && /^\d{8}$/.test(sp.day) ? sp.day : easternDay();
   const { a, error } = await loadSlate(day);
@@ -45,7 +44,21 @@ export default async function PolishOdds({ searchParams }: { searchParams: Promi
     }),
   );
 
-  const withPl = a.bets.filter((b) => b.offers.some((o) => isPolishBook(o.bookKey)));
+  const selGame = a.games.find((g) => g.id === sp.game)?.id ?? pre[0]?.id ?? a.games[0]?.id;
+  const type = sp.type === "all" ? "all" : "main"; // main = O/U + game lines; all = also "N+" ladders and yes/no
+  const allPl = a.bets.filter((b) => b.offers.some((o) => isPolishBook(o.bookKey)));
+  const withPl = allPl.filter((b) => b.gameId === selGame && (type === "all" || b.marketType === "ou" || b.marketType === "game") && (!sp.market || b.market === sp.market));
+  const present = new Set(allPl.flatMap((b) => b.offers.map((o) => o.bookKey)));
+  const COLS = [
+    { key: "draftkings", title: "DraftKings" },
+    ...[...PL_BOOKS, { key: "fortuna", title: "Fortuna" }].filter((b) => PL_BOOKS.some((x) => x.key === b.key) || present.has(b.key)),
+  ];
+  const marketsHere = [...new Set(allPl.filter((b) => b.gameId === selGame).map((b) => b.market))];
+  const qs = (o: Record<string, string | undefined>) => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries({ day: sp.day, game: selGame, type: sp.type, market: sp.market, ...o })) if (v) q.set(k, v);
+    return `/pl-odds?${q}`;
+  };
   const byGame = new Map<string, BetEval[]>();
   for (const b of withPl) {
     if (!byGame.has(b.gameId)) byGame.set(b.gameId, []);
@@ -75,15 +88,33 @@ export default async function PolishOdds({ searchParams }: { searchParams: Promi
       </Notice>
 
       <Card title="Wpisz kursy z aplikacji bukmachera" className="mb-6">
-        {formGames.length ? <ManualOddsForm games={formGames} books={PL_BOOKS} initialGame={sp.game} /> : <p className="text-sm text-ink-3">Brak meczów przed rozpoczęciem w tym dniu.</p>}
+        {formGames.length ? <ManualOddsForm games={formGames} books={PL_BOOKS} initialGame={selGame} /> : <p className="text-sm text-ink-3">Brak meczów przed rozpoczęciem w tym dniu.</p>}
         <p className="mt-3 text-xs text-ink-3">
           Linia może być inna niż w DraftKings — model liczy prawdopodobieństwo dokładnie dla wpisanej linii (z symulacji rozkładu zawodnika lub modelu meczu).
         </p>
       </Card>
 
       <h2 className="label mb-2">Porównanie kursów</h2>
+      <div className="mb-3 flex flex-wrap gap-2">
+        {a.games.map((g) => {
+          const n = allPl.filter((b) => b.gameId === g.id).length;
+          return (
+            <Link key={g.id} href={qs({ game: g.id, market: undefined })} className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${g.id === selGame ? "border-accent text-accent" : "border-line text-ink-2"}`}>
+              {g.away?.abbr} @ {g.home?.abbr} <span className="text-xs font-normal text-ink-3">{n}</span>
+            </Link>
+          );
+        })}
+      </div>
+      <div className="mb-4 flex flex-wrap items-center gap-1 text-xs">
+        <Link href={qs({ type: undefined })} className={`rounded-md px-2 py-1 ${type === "main" ? "bg-ink text-bg" : "bg-surface text-ink-3"}`}>Linie Over/Under + mecz</Link>
+        <Link href={qs({ type: "all" })} className={`mr-3 rounded-md px-2 py-1 ${type === "all" ? "bg-ink text-bg" : "bg-surface text-ink-3"}`}>+ drabinki „N+” i tak/nie</Link>
+        <Link href={qs({ market: undefined })} className={`rounded-md px-2 py-1 ${!sp.market ? "bg-ink text-bg" : "bg-surface text-ink-3"}`}>Wszystkie rynki</Link>
+        {marketsHere.map((m) => (
+          <Link key={m} href={qs({ market: m })} className={`rounded-md px-2 py-1 ${sp.market === m ? "bg-ink text-bg" : "bg-surface text-ink-3"}`}>{MARKET_LABEL[m]}</Link>
+        ))}
+      </div>
       {withPl.length === 0 ? (
-        <Empty title="Brak kursów polskich bukmacherów na ten dzień">Wpisz kursy powyżej{oddsPapiEnabled() ? " albo sprawdź w Ustawieniach, czy Twój klucz OddsPapi widzi polskich bukmacherów" : ""}.</Empty>
+        <Empty title="Brak kursów polskich bukmacherów dla tego meczu i filtra">Wpisz kursy powyżej{oddsPapiEnabled() ? " albo sprawdź w Ustawieniach, czy Twój klucz OddsPapi widzi polskich bukmacherów" : ""}.</Empty>
       ) : (
         [...byGame].map(([gameId, bets]) => (
           <Card key={gameId} title={gameLabel(gameId)} className="mb-4">

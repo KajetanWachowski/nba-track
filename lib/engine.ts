@@ -254,11 +254,14 @@ async function runSlate(day: string, force: boolean): Promise<SlateAnalysis> {
       const refs: GameRef[] = games.filter((g) => g.state === "pre").map((g) => ({ gameId: g.id, date: g.date, homeId: g.home_id, awayId: g.away_id, homeName: teams.get(g.home_id)?.name ?? "", awayName: teams.get(g.away_id)?.name ?? "" }));
       const playerIndex = new Map<string, string>();
       for (const [id, n] of rosterName) playerIndex.set(normName(n), id);
-      const r = await fetchPolishOffers(refs, playerIndex);
-      for (const o of r.offers)
-        if (!manualKeys.has(`${o.gameId}|${o.market}|${o.subjectId}|${o.side}|${o.line ?? ""}|${o.book}`)) // manual entry wins
-          offers.push({ ...o, kind: isGameMarket(o.market) ? "game" : o.side === "yes" ? "yes" : "ou", openLine: null, openPrice: null, sideCheck: "labeled" });
+      const r = await fetchPolishOffers(refs, playerIndex, rosterTeam);
+      for (const o of r.offers) {
+        if (manualKeys.has(`${o.gameId}|${o.market}|${o.subjectId}|${o.side}|${o.line ?? ""}|${o.book}`)) continue; // manual entry wins
+        if (o.kind === "milestone" && (o.dec < 1.25 || o.dec > 6)) continue; // extreme ladder rungs carry heavy, unknown vig
+        offers.push({ ...o, openLine: null, openPrice: null, sideCheck: "labeled" });
+      }
       sources.push({ name: "OddsPapi (polscy bukmacherzy)", fetchedAt: r.fetchedAt, ok: true, note: `${r.books.join(", ") || "no Polish books returned"} · ${r.matchedFixtures} games` });
+      if (r.foreignPlayers) warnings.push(`OddsPapi: ${r.foreignPlayers} player prices skipped — player not on either team's roster (bookmaker feed mix-up).`);
     } catch (e) {
       sources.push({ name: "OddsPapi (polscy bukmacherzy)", fetchedAt: null, ok: false, note: (e as Error).message });
       warnings.push(`OddsPapi failed: ${(e as Error).message}`);

@@ -34,6 +34,20 @@ i rozlicza typy — wyłączysz to przez `NBA_EDGE_NO_BACKGROUND=1`).
 | ESPN `site.web.api.espn.com` — gamelog | logi meczowe z poprzedniego sezonu (priory bayesowskie) | nie |
 | **The Odds API** (`api.the-odds-api.com`) | kursy wielu bukmacherów (FanDuel, BetMGM, Caesars, Pinnacle w regionie `eu`…) — line shopping i ostrzejsza referencja no-vig | **tak** |
 
+### Polscy bukmacherzy (strona „Polskie kursy”)
+
+| Bukmacher | Skąd | Co |
+|---|---|---|
+| **Superbet PL** | OddsPapi v4 (`superbet.pl`) — automatycznie | moneyline, handicap, suma punktów, propsy: punkty, zbiórki, asysty, PRA, P+R, P+A, R+A, trójki, straty (+ drabinki „N+”) |
+| Fortuna PL | OddsPapi v4 (`efortuna.pl`) — opcjonalnie | tylko linie meczowe |
+| **Betclic PL**, **Betfan** | brak w jakimkolwiek API — wpisujesz ręcznie | dowolny rynek i linia |
+
+Klucz: konto na <https://oddspapi.io> (darmowy plan), w `.env.local` ustaw `ODDSPAPI_KEY=…`
+(i opcjonalnie `ODDSPAPI_BOOKMAKERS=superbet.pl:superbet,efortuna.pl:fortuna`). Ręcznie wpisane kursy
+mają pierwszeństwo przed kursem z API. Model liczy prawdopodobieństwo dokładnie dla linii bukmachera,
+także gdy różni się od DraftKings. Zawodnicy spoza składów obu drużyn (pomyłki w feedzie) są odrzucani.
+Podatek 12% od stawki można włączyć w Ustawieniach (domyślnie wyłączony).
+
 **Klucz The Odds API:** załóż konto na <https://the-odds-api.com> (darmowy plan: 500 kredytów/mies.),
 wpisz `ODDS_API_KEY=...` do `.env.local`. Koszt = rynki × regiony za event; odpowiedzi są cache'owane
 30 min, propsy pobierane tylko dla meczów, które się nie zaczęły. Klucz nigdy nie trafia do cache ani logów.
