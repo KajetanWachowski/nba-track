@@ -47,3 +47,14 @@ describe("OddsPapi v4 market mapping (types seen in the live Superbet PL feed)",
     expect(canonicalMarket(m("players-firstpoint"))).toBeNull();
   });
 });
+
+import { explainPapiError } from "@/lib/providers/oddspapi";
+describe("OddsPapi error messages", () => {
+  it("condenses the invalid-bookmaker error to the Polish slugs", () => {
+    const m = "HTTP 400: Invalid bookmaker(s) provided. — Invalid bookmakers: fortuna.pl. Valid bookmakers are: 188bet, betclic.pl, efortuna.pl, superbet, superbet.pl, sts.pl, zebet.fr";
+    const out = explainPapiError(m);
+    expect(out).toContain("„fortuna.pl”");
+    expect(out).toContain("betclic.pl, efortuna.pl, superbet.pl, sts.pl");
+    expect(out).not.toContain("zebet");
+  });
+});

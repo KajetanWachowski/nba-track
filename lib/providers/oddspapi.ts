@@ -60,7 +60,7 @@ export interface PapiBookmaker {
 /** Bookmakers visible to this key; `polish` = Polish site/brand. */
 export async function listBookmakers(): Promise<(PapiBookmaker & { polish: boolean })[]> {
   const rows = await get<PapiBookmaker[]>("/bookmakers", {}, 6 * 3600);
-  return rows.map((b) => ({ ...b, polish: /\.pl\b|\bPL\b|betclic|betfan|\bsts\b|lvbet|etoto|totolotek|forbet/i.test(`${b.slug} ${b.bookmakerName}`) }));
+  return rows.map((b) => ({ ...b, polish: /\.pl$|\bPL\b|betfan|lvbet|etoto|totolotek/i.test(`${b.slug} ${b.bookmakerName}`) || /\.pl$/.test(b.slug) }));
 }
 
 export interface PapiMarket {
@@ -112,12 +112,21 @@ export type PapiOffer = Offer & { kind: "ou" | "milestone" | "yes" | "game" };
  * Odds for one fixture. If the combined request is refused (e.g. a plan that limits bookmakers
  * per request or does not include one of them), retry one bookmaker at a time and keep the rest.
  */
+/** Shorten OddsPapi's "Invalid bookmaker(s)" error (which lists ~400 slugs) to the useful part. */
+export function explainPapiError(msg: string): string {
+  const valid = msg.match(/Valid bookmakers are:\s*(.+)$/s);
+  const invalid = msg.match(/Invalid bookmakers?:\s*(.+?)\.\s+Valid/s)?.[1]?.trim();
+  if (!valid) return msg.length > 300 ? `${msg.slice(0, 300)}…` : msg;
+  const pl = valid[1].split(/,\s*/).map((s) => s.trim()).filter((s) => /\.pl$/.test(s));
+  return `nieznany slug bukmachera${invalid ? ` „${invalid}”` : ""} — popraw ODDSPAPI_BOOKMAKERS w .env.local. Dostępne polskie: ${pl.join(", ") || "brak"}`;
+}
+
 async function fetchFixtureOdds(fixtureId: string, slugs: string[], result: PapiResult): Promise<Record<string, any>> {
   try {
     return (await get<any>("/odds", { fixtureId, bookmakers: slugs.join(",") }, config.ttl.oddsPapi)).bookmakerOdds ?? {};
   } catch (e) {
     if (slugs.length < 2) {
-      result.errors.push(`${slugs[0]}: ${(e as Error).message}`);
+      result.errors.push(`${slugs[0]}: ${explainPapiError((e as Error).message)}`);
       return {};
     }
     const out: Record<string, any> = {};
@@ -125,7 +134,7 @@ async function fetchFixtureOdds(fixtureId: string, slugs: string[], result: Papi
       try {
         Object.assign(out, (await get<any>("/odds", { fixtureId, bookmakers: slug }, config.ttl.oddsPapi)).bookmakerOdds ?? {});
       } catch (e2) {
-        result.errors.push(`${slug}: ${(e2 as Error).message}`);
+        result.errors.push(`${slug}: ${explainPapiError((e2 as Error).message)}`);
       }
     }
     return out;
@@ -145,7 +154,7 @@ export interface PapiResult {
 }
 
 const flipName = (s: string) => (s.includes(",") ? s.split(",").map((x) => x.trim()).reverse().join(" ") : s);
-const titleOf = (key: string) => ({ superbet: "Superbet", betclic: "Betclic", betfan: "Betfan", fortuna: "Fortuna" })[key] ?? key;
+const titleOf = (key: string) => ({ superbet: "Superbet", betclic: "Betclic", betfan: "Betfan", fortuna: "Fortuna", sts: "STS", forbet: "Forbet" })[key] ?? key;
 
 /** Polish-book offers for the given ESPN games; players are matched by name to the two teams' rosters. */
 export async function fetchPolishOffers(games: GameRef[], playerIndex: Map<string, string>, rosterTeam?: Map<string, string>): Promise<PapiResult> {

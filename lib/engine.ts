@@ -331,7 +331,12 @@ async function runSlate(day: string, force: boolean): Promise<SlateAnalysis> {
     if (!(o.dec > 1)) continue;
     const k = `${o.gameId}|${o.market}|${o.subjectId}|${o.side}|${o.line ?? ""}`;
     if (!groups.has(k)) groups.set(k, []);
-    groups.get(k)!.push(o);
+    const grp = groups.get(k)!;
+    // One price per book: the same bet can be listed twice (e.g. O/U 12.5 and the "13+" ladder).
+    // Keep the higher price; on a tie prefer the two-way quote, which allows de-vigging.
+    const i = grp.findIndex((x) => x.book === o.book);
+    if (i < 0) grp.push(o);
+    else if (o.dec > grp[i].dec || (o.dec === grp[i].dec && o.oppDec && !grp[i].oppDec)) grp[i] = o;
   }
   const bets: BetEval[] = [];
   for (const [k, grp] of groups) {

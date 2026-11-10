@@ -51,7 +51,7 @@ export default async function PolishOdds({ searchParams }: { searchParams: Promi
   const present = new Set(allPl.flatMap((b) => b.offers.map((o) => o.bookKey)));
   const COLS = [
     { key: "draftkings", title: "DraftKings" },
-    ...[...PL_BOOKS, { key: "fortuna", title: "Fortuna" }].filter((b) => PL_BOOKS.some((x) => x.key === b.key) || present.has(b.key)),
+    ...[...PL_BOOKS, { key: "fortuna", title: "Fortuna" }, { key: "sts", title: "STS" }, { key: "forbet", title: "Forbet" }].filter((b) => PL_BOOKS.some((x) => x.key === b.key) || present.has(b.key)),
   ];
   const marketsHere = [...new Set(allPl.filter((b) => b.gameId === selGame).map((b) => b.market))];
   const qs = (o: Record<string, string | undefined>) => {

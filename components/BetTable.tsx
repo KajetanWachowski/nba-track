@@ -173,7 +173,7 @@ function BetDetail({ b }: { b: BetEval }) {
         <div className="pt-2">
           <div className="label mb-1">Prices</div>
           {b.offers.map((o) => (
-            <div key={o.book} className="num flex justify-between text-ink-2"><span>{o.book}</span><span>{dec(o.dec)}{o.oppDec ? ` / ${dec(o.oppDec)}` : ""}</span></div>
+            <div key={`${o.book}-${o.dec}`} className="num flex justify-between text-ink-2"><span>{o.book}</span><span>{dec(o.dec)}{o.oppDec ? ` / ${dec(o.oppDec)}` : ""}</span></div>
           ))}
         </div>
         {b.kind === "player" && <Link href={`/players/${b.subjectId}?market=${b.market}&line=${b.line ?? ""}`} className="inline-block pt-2 text-accent hover:underline">Open player analysis →</Link>}

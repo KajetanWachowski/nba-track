@@ -14,7 +14,11 @@ export const PL_BOOKS: BookInfo[] = [
 ];
 
 /** Polish books that can also arrive from OddsPapi but are not in the manual-entry form. */
-const EXTRA_PL: BookInfo[] = [{ key: "fortuna", title: "Fortuna", country: "pl" }];
+const EXTRA_PL: BookInfo[] = [
+  { key: "fortuna", title: "Fortuna", country: "pl" },
+  { key: "sts", title: "STS", country: "pl" },
+  { key: "forbet", title: "Forbet", country: "pl" },
+];
 
 export const bookTitle = (key: string) => [...PL_BOOKS, ...EXTRA_PL].find((b) => b.key === key)?.title ?? key;
 export const isPolishBook = (key: string) => [...PL_BOOKS, ...EXTRA_PL].some((b) => b.key === key.toLowerCase());
