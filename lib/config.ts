@@ -2,7 +2,7 @@ import path from "node:path";
 
 /** Central runtime configuration. Secrets come only from environment variables. */
 export const config = {
-  dataDir: path.resolve(process.env.DATA_DIR || "./data"),
+  dataDir: path.resolve(/* turbopackIgnore: true */ process.cwd(), process.env.DATA_DIR || "./data"),
   oddsApiKey: process.env.ODDS_API_KEY || "",
   oddsApiRegions: process.env.ODDS_API_REGIONS || "us,eu",
   oddsApiPropMarkets:

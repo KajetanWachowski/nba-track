@@ -536,7 +536,8 @@ export async function fetchSeasonLog(athleteId: string, season: number): Promise
   const names: string[] = d.names ?? [];
   const idx = (n: string) => names.indexOf(n);
   const out: SeasonLogGame[] = [];
-  const reg = (d.seasonTypes ?? []).find((s: any) => /regular season/i.test(s.displayName ?? ""));
+  // exact match: ESPN also has "… Play In Regular Season", which must not be mistaken for the season
+  const reg = (d.seasonTypes ?? []).find((s: any) => /^\d{4}-\d{2} Regular Season$/i.test((s.displayName ?? "").trim()));
   if (!reg) return out;
   for (const cat of reg.categories ?? []) {
     for (const e of cat.events ?? []) {

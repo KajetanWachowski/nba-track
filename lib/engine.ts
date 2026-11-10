@@ -19,11 +19,13 @@ import { buildContext, posGroup, restDays, type LeagueContext } from "./model/co
 import { pHomeCovers, pOverTotal, projectGame, type GameAbsence, type GameProjection } from "./model/game";
 import { distribution, lineHistory, probOver, projectPlayer, type PlayerProjection, type TeammateAbsence } from "./model/player";
 import { getModelParams } from "./model/params";
+import { latestBacktest } from "./backtest";
 import { expectedValue, fairOdds, impliedProb, kelly, noVig, overround } from "./odds/math";
 import { easternDay, fetchInjuries, fetchRoster, fetchSeasonLog, type Injury } from "./providers/espn";
 import { eventToOffers, fetchEventProps, fetchGameOdds, matchEvent, normName, oddsApiEnabled, type GameRef, type Offer } from "./providers/oddsapi";
 import { getGameLine, getGamesByDay, getPropLines, getTeams, type GameRow, type TeamRow } from "./store";
 import { syncSlate } from "./sync";
+import { logPredictions } from "./tracking";
 
 export const P_OUT: Record<string, number> = { OUT: 1, DOUBTFUL: 0.75, QUESTIONABLE: 0.35, "DAY-TO-DAY": 0.25, PROBABLE: 0.05 };
 
@@ -84,6 +86,8 @@ export interface SlateAnalysis {
   warnings: string[];
   playersAnalyzed: number;
   projections: Map<string, PlayerProjection>;
+  /** whether the latest out-of-sample backtest showed the calibrated model beating the market */
+  evidence: Record<"player" | "game", { proven: boolean; detail: string }>;
 }
 
 const slateCache = new Map<string, { at: number; v: Promise<SlateAnalysis> }>();
@@ -128,6 +132,21 @@ async function runSlate(day: string, force: boolean): Promise<SlateAnalysis> {
   const games = getGamesByDay(day).filter((g) => g.season_type === 2);
   const ctx = buildContext(day);
   const cal = { player: getCalibration("player"), game: getCalibration("game") };
+  // Evidence gate: a market scope may only produce recommendations if the calibrated model beat the
+  // de-vigged market out-of-sample in the latest walk-forward backtest.
+  const bt = latestBacktest();
+  const evidence = {} as SlateAnalysis["evidence"];
+  for (const k of ["player", "game"] as const) {
+    const m = bt?.metrics[k];
+    const proven = Boolean(m && m.n >= 100 && m.logLossCal < m.logLossMarket);
+    evidence[k] = {
+      proven,
+      detail: !m
+        ? "no backtest has been run yet"
+        : `out-of-sample log-loss ${m.logLossCal.toFixed(4)} vs market ${m.logLossMarket.toFixed(4)} (n=${m.n})`,
+    };
+    if (!proven) warnings.push(`${k === "player" ? "Player props" : "Game lines (ML/spread/total)"}: not recommended — ${evidence[k].detail}${m ? "; the model has not beaten the market here" : ""}.`);
+  }
   if (!cal.player.fittedAt) warnings.push("Model probabilities are uncalibrated — run a backtest (History → Run backtest) to fit calibration.");
 
   // ---- offers: DraftKings via ESPN always; other books via The Odds API when configured ----
@@ -325,11 +344,20 @@ async function runSlate(day: string, force: boolean): Promise<SlateAnalysis> {
     if (best.kind === "milestone" || best.kind === "yes") bet.warnings.push("One-way market: no-vig probability is an estimate");
     if (best.openLine !== null && best.line !== null && best.openLine !== best.line)
       bet.reasons.push(`Line moved ${best.openLine} → ${best.line} since open`);
+    if (!evidence[bet.kind].proven) {
+      bet.confidenceScore = Math.min(bet.confidenceScore, 45);
+      bet.warnings.unshift(`Evidence gate: ${evidence[bet.kind].detail} — the model has not shown an edge over the market for this bet type.`);
+    }
     bet.confidence = bet.confidenceScore >= 75 ? "High" : bet.confidenceScore >= 50 ? "Medium" : "Low";
     bet.isValue = bet.ev > 0 && bet.confidence !== "Low";
     bets.push(bet);
   }
   bets.sort((a, b) => b.ev - a.ev);
+  try {
+    logPredictions(bets);
+  } catch (e) {
+    warnings.push(`could not log predictions: ${(e as Error).message}`);
+  }
 
   return {
     day,
@@ -343,6 +371,7 @@ async function runSlate(day: string, force: boolean): Promise<SlateAnalysis> {
     warnings,
     playersAnalyzed: projections.size,
     projections,
+    evidence,
   };
 }
 

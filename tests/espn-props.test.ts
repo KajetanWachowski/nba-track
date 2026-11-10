@@ -50,3 +50,28 @@ describe("injury classification", () => {
     expect(classifyInjury("Day-To-Day", "Smith is dealing with soreness")).toBe("DAY-TO-DAY");
   });
 });
+
+import { vi } from "vitest";
+describe("season log parsing", () => {
+  it("uses the regular season, not the play-in block", async () => {
+    vi.resetModules();
+    vi.doMock("@/lib/http", () => ({
+      fetchJson: async () => ({
+        fetchedAt: 0, fromCache: true, stale: false,
+        data: {
+          names: ["minutes", "points", "totalRebounds", "assists", "threePointFieldGoalsMade-threePointFieldGoalsAttempted", "steals", "blocks", "turnovers"],
+          events: { a: { gameDate: "2026-04-15", opponent: { id: "1" }, atVs: "vs" }, b: { gameDate: "2026-03-01", opponent: { id: "2" }, atVs: "@" }, c: { gameDate: "2026-03-03", opponent: { id: "3" }, atVs: "@" } },
+          seasonTypes: [
+            { displayName: "2025-26 Play In Regular Season", categories: [{ events: [{ eventId: "a", stats: ["38", "41", "9", "6", "3-7", "1", "0", "2"] }] }] },
+            { displayName: "2025-26 Regular Season", categories: [{ events: [{ eventId: "b", stats: ["34", "25", "7", "5", "2-5", "1", "1", "3"] }, { eventId: "c", stats: ["30", "20", "6", "4", "1-4", "2", "0", "1"] }] }] },
+          ],
+        },
+      }),
+    }));
+    const { fetchSeasonLog } = await import("@/lib/providers/espn");
+    const log = await fetchSeasonLog("x", 2026);
+    expect(log.map((g) => g.gameId)).toEqual(["b", "c"]);
+    expect(log[0].fg3m).toBe(2);
+    expect(log[1].home).toBe(false);
+  });
+});
