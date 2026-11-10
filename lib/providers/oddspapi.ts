@@ -108,6 +108,30 @@ export function canonicalMarket(m: Pick<PapiMarket, "marketType" | "period" | "p
 
 export type PapiOffer = Offer & { kind: "ou" | "milestone" | "yes" | "game" };
 
+/**
+ * Odds for one fixture. If the combined request is refused (e.g. a plan that limits bookmakers
+ * per request or does not include one of them), retry one bookmaker at a time and keep the rest.
+ */
+async function fetchFixtureOdds(fixtureId: string, slugs: string[], result: PapiResult): Promise<Record<string, any>> {
+  try {
+    return (await get<any>("/odds", { fixtureId, bookmakers: slugs.join(",") }, config.ttl.oddsPapi)).bookmakerOdds ?? {};
+  } catch (e) {
+    if (slugs.length < 2) {
+      result.errors.push(`${slugs[0]}: ${(e as Error).message}`);
+      return {};
+    }
+    const out: Record<string, any> = {};
+    for (const slug of slugs) {
+      try {
+        Object.assign(out, (await get<any>("/odds", { fixtureId, bookmakers: slug }, config.ttl.oddsPapi)).bookmakerOdds ?? {});
+      } catch (e2) {
+        result.errors.push(`${slug}: ${(e2 as Error).message}`);
+      }
+    }
+    return out;
+  }
+}
+
 export interface PapiResult {
   offers: PapiOffer[];
   matchedFixtures: number;
@@ -116,6 +140,8 @@ export interface PapiResult {
   foreignPlayers: number;
   books: string[];
   fetchedAt: number;
+  /** per-bookmaker/per-game failures that did not stop the rest */
+  errors: string[];
 }
 
 const flipName = (s: string) => (s.includes(",") ? s.split(",").map((x) => x.trim()).reverse().join(" ") : s);
@@ -123,7 +149,7 @@ const titleOf = (key: string) => ({ superbet: "Superbet", betclic: "Betclic", be
 
 /** Polish-book offers for the given ESPN games; players are matched by name to the two teams' rosters. */
 export async function fetchPolishOffers(games: GameRef[], playerIndex: Map<string, string>, rosterTeam?: Map<string, string>): Promise<PapiResult> {
-  const result: PapiResult = { offers: [], matchedFixtures: 0, skippedMarkets: 0, foreignPlayers: 0, books: [], fetchedAt: Date.now() };
+  const result: PapiResult = { offers: [], matchedFixtures: 0, skippedMarkets: 0, foreignPlayers: 0, books: [], fetchedAt: Date.now(), errors: [] };
   if (!games.length) return result;
   const bmap = bookmakerMap();
   const days = games.map((g) => g.date.slice(0, 10)).sort();
@@ -143,8 +169,8 @@ export async function fetchPolishOffers(games: GameRef[], playerIndex: Map<strin
     );
     if (!g) continue;
     result.matchedFixtures++;
-    const odds = await get<any>("/odds", { fixtureId: f.fixtureId, bookmakers: [...bmap.keys()].join(",") }, config.ttl.oddsPapi);
-    for (const [slug, bk] of Object.entries<any>(odds.bookmakerOdds ?? {})) {
+    const bookmakerOdds = await fetchFixtureOdds(f.fixtureId, [...bmap.keys()], result);
+    for (const [slug, bk] of Object.entries<any>(bookmakerOdds)) {
       if (!bk.bookmakerIsActive || bk.suspended) continue;
       const key = bmap.get(slug) ?? slug;
       const mk = (market: Market, subjectId: string, side: Offer["side"], line: number | null, dec: number, opp: number | null, kind: PapiOffer["kind"]): PapiOffer => ({

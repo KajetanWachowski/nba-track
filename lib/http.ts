@@ -61,7 +61,22 @@ async function doFetch<T>(url: string, key: string, opts: FetchOpts): Promise<Fe
       if (res.status === 404) throw new DataUnavailableError(opts.source, "not found (404)", 404);
       if (res.status === 401 || res.status === 403)
         throw new DataUnavailableError(opts.source, `unauthorized (${res.status})`, res.status);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        // surface the provider's own explanation (e.g. {"error":{"message":…,"details":…}})
+        const body = await res.text().catch(() => "");
+        let detail = "";
+        try {
+          const j = JSON.parse(body);
+          const e = j.error ?? j;
+          detail = [typeof e === "string" ? e : e.message, e.details ?? j.details ?? j.code].filter((x) => typeof x === "string").join(" — ");
+        } catch {
+          detail = body.slice(0, 160);
+        }
+        const msg = `HTTP ${res.status}${detail ? `: ${detail}` : ""}`;
+        // other 4xx (bad request, plan limits) cannot succeed on retry; 429 and 5xx can
+        if (res.status >= 400 && res.status < 500 && res.status !== 429) throw new DataUnavailableError(opts.source, msg, res.status);
+        throw new Error(msg);
+      }
       const text = await res.text();
       const data = JSON.parse(text) as T;
       db.prepare(

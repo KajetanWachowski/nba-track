@@ -261,6 +261,7 @@ async function runSlate(day: string, force: boolean): Promise<SlateAnalysis> {
         offers.push({ ...o, openLine: null, openPrice: null, sideCheck: "labeled" });
       }
       sources.push({ name: "OddsPapi (polscy bukmacherzy)", fetchedAt: r.fetchedAt, ok: true, note: `${r.books.join(", ") || "no Polish books returned"} · ${r.matchedFixtures} games` });
+      if (r.errors.length) warnings.push(`OddsPapi: część zapytań odrzucona — ${[...new Set(r.errors)].slice(0, 3).join(" · ")}`);
       if (r.foreignPlayers) warnings.push(`OddsPapi: ${r.foreignPlayers} player prices skipped — player not on either team's roster (bookmaker feed mix-up).`);
     } catch (e) {
       sources.push({ name: "OddsPapi (polscy bukmacherzy)", fetchedAt: null, ok: false, note: (e as Error).message });
