@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { Category, Severity } from "@/lib/assess";
 import type { BetEval } from "@/lib/engine";
 import { ago, dateTime, dec, num, pct, pp, signedPct, tipTime } from "@/lib/format";
+import { ProjectionExplain } from "./ProjectionExplain";
 import { Term } from "./Term";
 
 export const CATEGORY: Record<Category, { label: string; cls: string; dot: string }> = {
@@ -164,6 +165,13 @@ function Details({ b }: { b: BetEval }) {
   const a = b.assessment;
   const s = a.stats;
   return (
+    <div className="space-y-5">
+    {s?.explain && (
+      <div>
+        <div className="label mb-2">Skąd ta projekcja?</div>
+        <ProjectionExplain e={s.explain} line={b.line} unit={b.marketLabel.toLowerCase()} />
+      </div>
+    )}
     <div className="grid gap-5 md:grid-cols-2">
       <div>
         <div className="label mb-1">Model</div>
@@ -220,6 +228,7 @@ function Details({ b }: { b: BetEval }) {
       ) : (
         <div className="text-ink-3">Linia meczowa — szczegóły drużyn na stronie meczu. <Link className="text-accent" href={`/games/${b.gameId}`}>Otwórz mecz →</Link></div>
       )}
+    </div>
     </div>
   );
 }

@@ -7,6 +7,7 @@ import { buildContext, posGroup, restDays, type PosGroup } from "./model/context
 import { getModelParams } from "./model/params";
 import { distribution, playedGames, probOver, projectPlayer, type PlayerProjection } from "./model/player";
 import { mean, median } from "./model/stats";
+import { explainProjection, type Explanation } from "./model/explain";
 import { addDays, easternDay, fetchInjuries, fetchRoster, fetchScoreboard, fetchSeasonLog, type Injury, type SeasonLogGame } from "./providers/espn";
 import { getAthlete, getGameLine, getTeams, type GameRow, type PlayerGameRow, type TeamRow } from "./store";
 import { upsertGames } from "./sync";
@@ -52,7 +53,7 @@ export interface PlayerAnalysis {
   next: { game: GameRow; opp: TeamRow | null; home: boolean; restDays: number | null } | null;
   projection: {
     minutes: PlayerProjection["minutes"];
-    markets: Record<string, { mean: number; median: number; p10: number; p90: number; atLeast: number[] }>;
+    markets: Record<string, { mean: number; median: number; p10: number; p90: number; atLeast: number[]; explain: Explanation | null }>;
     factors: Record<StatKey, PlayerProjection["stats"][StatKey]["factors"]>;
     warnings: string[];
     notes: string[];
@@ -160,7 +161,11 @@ export async function getPlayerAnalysis(athleteId: string): Promise<PlayerAnalys
       const markets: NonNullable<PlayerAnalysis["projection"]>["markets"] = {};
       for (const m of [...PLAYER_LINE_MARKETS, "dd", "td"] as PlayerMarket[]) {
         const d = distribution(proj, m);
-        markets[m] = { mean: d.mean, median: d.median, p10: d.p10, p90: d.p90, atLeast: m === "dd" || m === "td" ? [1, probOver(proj, m, 0.5).p] : d.atLeast };
+        const isYes = m === "dd" || m === "td";
+        markets[m] = {
+          mean: d.mean, median: d.median, p10: d.p10, p90: d.p90, atLeast: isYes ? [1, probOver(proj, m, 0.5).p] : d.atLeast,
+          explain: isYes ? null : explainProjection({ market: m, proj, simMean: d.mean, history: gctx.playerGames(athleteId), prior, ctx: gctx, oppId, oppAbbr: teams.get(oppId)?.abbr ?? "", home }),
+        };
       }
       projection = {
         minutes: proj.minutes, markets,

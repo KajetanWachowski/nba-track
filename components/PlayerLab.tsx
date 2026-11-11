@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import type { PlayerAnalysis } from "@/lib/analysis";
 import { dec, num, pct, signedPct, shortDate } from "@/lib/format";
 import { LineBarChart } from "./LineChart";
+import { ProjectionExplain } from "./ProjectionExplain";
 
 const MARKETS: { key: string; label: string; parts: string[] }[] = [
   { key: "pts", label: "Punkty", parts: ["pts"] },
@@ -165,26 +166,31 @@ export function PlayerLab({ a, initialMarket, initialLine, cal }: { a: PlayerAna
             )}
           </section>
           {a.projection && (
-            <section className="rounded-2xl border border-line bg-surface p-4 text-sm">
-              <div className="label mb-2">Dane wejściowe modelu ({m.label.toLowerCase()})</div>
-              <Factor k="Projekcja minut" v={`${num(a.projection.minutes.mean)} ± ${num(a.projection.minutes.sd)}`} />
-              {m.parts.map((p) => {
-                const f = a.projection!.factors[p as keyof typeof a.projection.factors];
-                return (
-                  <div key={p} className="mt-2 border-t border-line pt-2">
-                    <div className="text-xs font-semibold uppercase text-ink-3">{p}</div>
-                    <Factor k="Obrona rywala (na posiadanie)" v={signedPct(f.opponent - 1)} />
-                    <Factor k="Tempo" v={signedPct(f.pace - 1)} />
-                    <Factor k="Dom / wyjazd" v={signedPct(f.home - 1)} />
-                    <Factor k="Nieobecności kolegów" v={signedPct(f.teammates - 1)} />
-                    <Factor k="Mecze z tym rywalem (mocno ściągnięte)" v={signedPct(f.h2h - 1)} />
-                  </div>
-                );
-              })}
-              {a.projection.teammates.filter((t) => t.method !== "already-absent").map((t) => (
-                <p key={t.name} className="mt-2 text-xs text-ink-2">{t.name} ({t.status}): {t.minutes >= 0 ? "+" : ""}{num(t.minutes)} min ({t.method === "with/without" ? "dane z meczów bez niego" : "szacunek"})</p>
-              ))}
+            <section className="rounded-2xl border border-line bg-surface p-4">
+              <div className="label mb-2">Skąd ta projekcja? ({m.label.toLowerCase()})</div>
+              {a.projection.markets[market]?.explain ? (
+                <ProjectionExplain e={a.projection.markets[market].explain!} line={line} unit={m.label.toLowerCase()} />
+              ) : <p className="text-sm text-ink-3">Brak rozkładu dla tego rynku.</p>}
               {[...a.projection.notes, ...a.projection.warnings].map((w) => <p key={w} className="mt-2 text-xs text-warn">⚠ {w}</p>)}
+              <details className="mt-3 text-sm">
+                <summary className="cursor-pointer text-xs text-ink-3">Szczegóły techniczne (współczynniki modelu)</summary>
+                <div className="mt-2">
+                  <Factor k="Projekcja minut" v={`${num(a.projection.minutes.mean)} ± ${num(a.projection.minutes.sd)}`} />
+                  {m.parts.map((p) => {
+                    const f = a.projection!.factors[p as keyof typeof a.projection.factors];
+                    return (
+                      <div key={p} className="mt-2 border-t border-line pt-2">
+                        <div className="text-xs font-semibold uppercase text-ink-3">{p}</div>
+                        <Factor k="Obrona rywala (na posiadanie)" v={signedPct(f.opponent - 1)} />
+                        <Factor k="Tempo" v={signedPct(f.pace - 1)} />
+                        <Factor k="Dom / wyjazd" v={signedPct(f.home - 1)} />
+                        <Factor k="Nieobecności kolegów" v={signedPct(f.teammates - 1)} />
+                        <Factor k="Mecze z tym rywalem" v={signedPct(f.h2h - 1)} />
+                      </div>
+                    );
+                  })}
+                </div>
+              </details>
             </section>
           )}
         </aside>

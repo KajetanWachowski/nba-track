@@ -143,7 +143,12 @@ export function projectPlayer(ctx: LeagueContext, athleteId: string, g: PlayerGa
 
   const b2b = g.restDays === 0;
   const b2bFactor = b2b ? ctx.b2bMinutes.factor : 1;
-  if (b2b) notes.push(`drugi mecz dzień po dniu (efekt na minuty w lidze ${(b2bFactor * 100 - 100).toFixed(1)}%)`);
+  if (b2b)
+    notes.push(
+      b2bFactor > 0.995
+        ? "drugi mecz dzień po dniu — w tym sezonie zawodnicy nie grają wtedy wyraźnie krócej, więc model nie obniża minut"
+        : `drugi mecz dzień po dniu — zawodnicy grają wtedy średnio o ${Math.round((1 - b2bFactor) * 100)}% krócej`,
+    );
 
   // ---------------- per-minute rates (Gamma posterior) ----------------
   const wRate = decayWeights(n, P.rateHalfLife);

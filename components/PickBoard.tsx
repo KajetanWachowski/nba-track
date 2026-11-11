@@ -33,6 +33,7 @@ export function PickBoard({ bets, totals, compact = false, showRejected = true, 
 }) {
   const [minProb, setMinProb] = useState(0.5);
   const [minEv, setMinEv] = useState(-0.05);
+  const [minOdds, setMinOdds] = useState(1.5);
   const [market, setMarket] = useState("all");
   const [team, setTeam] = useState("all");
   const [q, setQ] = useState("");
@@ -46,13 +47,13 @@ export function PickBoard({ bets, totals, compact = false, showRejected = true, 
   const filtered = useMemo(() => {
     const ql = q.trim().toLowerCase();
     return bets
-      .filter((b) => b.assessment.category === "odrzucone" || (b.modelProb >= minProb && b.ev >= minEv))
+      .filter((b) => b.assessment.category === "odrzucone" || (b.modelProb >= minProb && b.ev >= minEv && b.price >= minOdds))
       .filter((b) => market === "all" || b.market === market)
       .filter((b) => team === "all" || b.teamAbbr === team || b.oppAbbr === team)
       .filter((b) => !plOnly || b.playable)
       .filter((b) => !ql || b.subjectName.toLowerCase().includes(ql) || b.gameLabel.toLowerCase().includes(ql))
       .sort((a, b) => (sort === "prob" ? b.modelProb - a.modelProb : sort === "ev" ? b.ev - a.ev : b.assessment.rankScore - a.assessment.rankScore));
-  }, [bets, minProb, minEv, market, team, plOnly, q, sort]);
+  }, [bets, minProb, minEv, minOdds, market, team, plOnly, q, sort]);
   const by = (c: Category) => filtered.filter((b) => b.assessment.category === c);
   const recommended = by("najlepsze").length + by("dobre").length;
   const sel = "rounded-lg border border-line bg-surface-2 px-2 py-1.5 text-sm text-ink";
@@ -80,6 +81,9 @@ export function PickBoard({ bets, totals, compact = false, showRejected = true, 
           </label>
           <label className="flex flex-col gap-1"><span className="label"><Term k="ev">Min. EV {signedPct(minEv, 0)}</Term></span>
             <input type="range" min={-0.15} max={0.2} step={0.01} value={minEv} onChange={(e) => setMinEv(+e.target.value)} className="w-36 accent-[var(--accent)]" />
+          </label>
+          <label className="flex flex-col gap-1"><span className="label">Min. kurs {minOdds.toFixed(2)}</span>
+            <input type="range" min={1.01} max={2.5} step={0.05} value={minOdds} onChange={(e) => setMinOdds(+e.target.value)} className="w-32 accent-[var(--accent)]" />
           </label>
           <label className="flex flex-col gap-1"><span className="label">Sortuj</span>
             <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} className={sel}>

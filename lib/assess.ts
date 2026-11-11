@@ -11,6 +11,7 @@
  */
 import { COMBOS, type PlayerMarket, type StatKey } from "./markets";
 import type { LeagueContext } from "./model/context";
+import type { Explanation } from "./model/explain";
 import type { PlayerProjection } from "./model/player";
 import { mean, median, sd, slope } from "./model/stats";
 import type { PlayerGameRow } from "./store";
@@ -55,6 +56,8 @@ export interface PlayerStatsBlock {
     restDays: number | null;
   };
   context: { blowoutProb: number; selfStatus: string | null; teammatesOut: string[]; roleChange: string | null };
+  /** „Skąd ta projekcja?” — kroki od średniej sezonu do projekcji */
+  explain?: Explanation;
 }
 
 export interface Assessment {
@@ -75,6 +78,9 @@ export const THRESHOLDS = {
   dobre: { prob: 0.53, quality: 55, ev: 0.0, maxSignificantRisks: 2 },
   obserwuj: { prob: 0.5, quality: 40, ev: -0.04 },
   preferredOdds: [1.7, 2.2] as const,
+  /** poniżej tego kursu zakład nie może być „Najlepszy”, a „Dobry” wymaga wyższego EV */
+  lowOdds: 1.4,
+  lowOddsMinEv: 0.04,
 };
 
 const pct = (x: number, d = 0) => `${(x * 100).toFixed(d)}%`;
@@ -396,26 +402,38 @@ function finish(
 ): Assessment {
   const order: Record<Severity, number> = { krytyczne: 0, istotne: 1, drobne: 2 };
   risks.sort((a, b) => order[a.severity] - order[b.severity]);
+  const T = THRESHOLDS;
+  if (x.price < T.lowOdds && x.price > 1) {
+    risks.push({
+      severity: "drobne",
+      text: `Niski kurs ${x.price.toFixed(2)}: wygrana daje tylko ${Math.round((x.price - 1) * 100)} gr na każdą złotówkę, a jedna przegrana kasuje zysk z ok. ${Math.max(1, Math.round(1 / (x.price - 1)))} wygranych.`,
+    });
+    risks.sort((a, b) => order[a.severity] - order[b.severity]);
+  }
   const critical = risks.filter((r) => r.severity === "krytyczne").length;
   const significant = risks.filter((r) => r.severity === "istotne").length;
-  const T = THRESHOLDS;
   const reasons: string[] = [];
   let category: Category;
   if (critical) {
     category = "odrzucone";
     reasons.push(`Ryzyko krytyczne: ${risks[0].text}`);
   } else if (
+    x.price >= T.lowOdds &&
     x.playable && x.marketProven.proven && x.modelProb >= T.najlepsze.prob && qScore >= T.najlepsze.quality && x.ev >= T.najlepsze.ev &&
     (x.edgeVsFair ?? 0) >= T.najlepsze.edgeVsFair && significant <= T.najlepsze.maxSignificantRisks
   ) {
     category = "najlepsze";
-  } else if (x.playable && x.marketProven.proven && x.modelProb >= T.dobre.prob && qScore >= T.dobre.quality && x.ev >= T.dobre.ev && significant <= T.dobre.maxSignificantRisks) {
+  } else if (
+    x.playable && x.marketProven.proven && x.modelProb >= T.dobre.prob && qScore >= T.dobre.quality &&
+    x.ev >= (x.price < T.lowOdds ? T.lowOddsMinEv : T.dobre.ev) && significant <= T.dobre.maxSignificantRisks
+  ) {
     category = "dobre";
   } else if (x.modelProb >= T.obserwuj.prob && qScore >= T.obserwuj.quality && x.ev >= T.obserwuj.ev) {
     category = "obserwuj";
     if (!x.playable) reasons.push("Brak kursu polskiego bukmachera — wpisz kurs Superbet, aby ocenić opłacalność.");
     if (!x.marketProven.proven) reasons.push("Ten typ zakładu nie przeszedł weryfikacji w backteście.");
     if (x.ev < T.dobre.ev) reasons.push(`Kurs jest za niski względem szans (EV ${(x.ev * 100).toFixed(1)}%).`);
+    else if (x.price < T.lowOdds && x.ev < T.lowOddsMinEv) reasons.push(`Przy kursie poniżej ${T.lowOdds.toFixed(2)} wymagamy EV co najmniej ${Math.round(T.lowOddsMinEv * 100)}% (jest ${(x.ev * 100).toFixed(1)}%).`);
     if (significant > T.dobre.maxSignificantRisks) reasons.push(`Zbyt wiele istotnych ryzyk (${significant}).`);
     if (x.modelProb < T.dobre.prob) reasons.push(`Prawdopodobieństwo ${pct(x.modelProb)} — poniżej progu ${pct(T.dobre.prob)}.`);
     if (qScore < T.dobre.quality) reasons.push(`Jakość danych ${qScore}/100 — poniżej progu ${T.dobre.quality}.`);
@@ -430,7 +448,8 @@ function finish(
   const level = qScore >= 75 ? "wysoka" : qScore >= 55 ? "średnia" : "niska";
   const valueLabel = x.ev >= 0.02 ? "korzystny" : x.ev >= -0.02 ? "neutralny" : "niekorzystny";
   const [lo, hi] = T.preferredOdds;
-  const oddsBonus = x.price >= lo && x.price <= hi ? 3 : 0;
+  // preferowany zakres 1.70–2.20; niskie kursy spadają w rankingu (np. 1.20 → −12)
+  const oddsBonus = x.price >= lo && x.price <= hi ? 3 : x.price < 1.5 ? -(1.5 - x.price) * 40 : 0;
   const catBase = { najlepsze: 300, dobre: 200, obserwuj: 100, odrzucone: 0 }[category];
   const rankScore = catBase + x.modelProb * 100 + qScore * 0.2 + Math.max(-10, Math.min(10, x.ev * 100)) + oddsBonus - significant * 2;
 

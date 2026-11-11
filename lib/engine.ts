@@ -29,6 +29,7 @@ import { assessGame, assessPlayer, type Assessment } from "./assess";
 import { getMeta, setMeta } from "./db";
 import { effectivePrice, getTaxSettings, isPolishBook } from "./books";
 import { choosePrice } from "./pricing";
+import { explainProjection } from "./model/explain";
 import { listManual, manualToOffers } from "./manual-odds";
 import { fetchPolishOffers, getUsage as getPapiUsage, oddsPapiEnabled } from "./providers/oddspapi";
 import { logPredictions } from "./tracking";
@@ -324,6 +325,7 @@ async function runSlate(day: string, force: boolean): Promise<SlateAnalysis> {
   const params = getModelParams();
   const subjectTeam = new Map<string, string>();
   const priorByAthlete = new Map<string, number>();
+  const priorLogs = new Map<string, Awaited<ReturnType<typeof fetchSeasonLog>>>();
   const subjects = [...new Set(offers.filter((o) => !isGameMarket(o.market)).map((o) => `${o.gameId}|${o.subjectId}`))];
   await mapLimit(subjects, 6, async (k) => {
     const [gameId, athleteId] = k.split("|");
@@ -339,6 +341,7 @@ async function runSlate(day: string, force: boolean): Promise<SlateAnalysis> {
       /* rookies have no prior season */
     }
     priorByAthlete.set(athleteId, prior.filter((r) => r.min > 0).length);
+    priorLogs.set(athleteId, prior);
     const absences: TeammateAbsence[] = (injByTeam.get(teamId) ?? [])
       .filter((i) => i.athleteId !== athleteId)
       .map((i) => ({ athleteId: i.athleteId, name: i.name, pOut: P_OUT[i.status] ?? 0.25, status: i.status }));
@@ -461,7 +464,13 @@ async function runSlate(day: string, force: boolean): Promise<SlateAnalysis> {
         restDays: restDays(ctx, teamId, day), selfStatus: injOf.get(bet.subjectId)?.status ?? null, injuriesAvailable,
         calibrated: Boolean(cal.player.fittedAt), marketProven: marketProven(bet.market, "player"), hasPriorSeason: (priorByAthlete.get(bet.subjectId) ?? 0) >= 10,
       });
-      if (bet.assessment.stats && bet.projection) bet.assessment.stats.projection = { mean: bet.projection.mean, p10: bet.projection.p10, p90: bet.projection.p90 };
+      if (bet.assessment.stats && bet.projection) {
+        bet.assessment.stats.projection = { mean: bet.projection.mean, p10: bet.projection.p10, p90: bet.projection.p90 };
+        bet.assessment.stats.explain = explainProjection({
+          market: bet.market as PlayerMarket, proj, simMean: bet.projection.mean, history: ctx.playerGames(bet.subjectId), prior: priorLogs.get(bet.subjectId),
+          ctx, oppId, oppAbbr: teams.get(oppId)?.abbr ?? "", home,
+        });
+      }
     } else {
       const gp = gameProj.get(g.id)!;
       bet.assessment = assessGame({

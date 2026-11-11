@@ -14,9 +14,9 @@ export default async function Dashboard() {
   if (!a) return <><PageHeader eyebrow="Pulpit" title="NBA" accent="Edge" /><Notice tone="neg">Nie udało się wczytać dzisiejszych meczów: {error}. Uruchom <code>npm run sync</code> i sprawdź połączenie.</Notice></>;
   const bt = latestBacktest();
   const { totals } = boardBets(a.bets);
-  const top = a.bets.filter((b) => b.assessment.category === "najlepsze" || b.assessment.category === "dobre").slice(0, 6);
+  const top = a.bets.filter((b) => (b.assessment.category === "najlepsze" || b.assessment.category === "dobre") && b.price >= 1.5).slice(0, 6);
   // pulpit: obserwowane zakłady na zawodników (linie meczowe są na stronie Propozycji)
-  const watch = a.bets.filter((b) => b.assessment.category === "obserwuj" && b.kind === "player").slice(0, 4);
+  const watch = a.bets.filter((b) => b.assessment.category === "obserwuj" && b.kind === "player" && b.price >= 1.5).slice(0, 4);
   const pre = a.games.filter((g) => g.state === "pre");
   const playable = a.bets.filter((b) => b.playable).length;
   const keyInjuries = a.injuries.filter((i) => a.games.some((g) => g.home_id === i.teamId || g.away_id === i.teamId)).filter((i) => i.status !== "PROBABLE").slice(0, 12);

@@ -120,3 +120,21 @@ describe("rozkład dwumianowy (trafienia z prób)", () => {
     expect(v).toBeCloseTo(1.365, 1);
   });
 });
+
+describe("niskie kursy", () => {
+  const steady = rows(Array.from({ length: 20 }, (_, i) => ({ fg3m: i % 4 === 0 ? 2 : 0, fg3a: 3 })));
+  const base = { history: steady, teamRecentGameIds: steady.map((r) => r.game_id), proj: proj(0.6), modelProb: 0.86, edgeVsFair: 0.03 };
+  it("kurs 1.20 nie może być „Najlepszy”, a „Dobry” wymaga EV ≥ 4%", () => {
+    const low = assessPlayer(input({ ...base, price: 1.2, ev: 0.03 }));
+    expect(low.category).not.toBe("najlepsze");
+    expect(low.category).not.toBe("dobre");
+    expect(low.risks.some((r) => r.text.startsWith("Niski kurs 1.20"))).toBe(true);
+    const lowButValue = assessPlayer(input({ ...base, price: 1.2, ev: 0.05 }));
+    expect(lowButValue.category).toBe("dobre");
+  });
+  it("niski kurs spada w rankingu względem kursu z preferowanego zakresu", () => {
+    const low = assessPlayer(input({ ...base, price: 1.2, ev: 0.05 }));
+    const mid = assessPlayer(input({ ...base, price: 1.9, ev: 0.05, modelProb: 0.6 }));
+    expect(mid.rankScore - 100 * (0.6 - 0.86)).toBeGreaterThan(low.rankScore - 0);
+  });
+});
