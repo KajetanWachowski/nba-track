@@ -49,5 +49,19 @@ describe("OddsPapi: tempo zapytań i bukmacherzy spoza planu", () => {
     expect(calls.filter((c) => c.startsWith("/v4/odds")).at(-1)).toBe("/v4/odds?superbet.pl");
     // 429 nie liczy się do limitu: participants+markets+fixtures + (odds 403) + 2 próby + odds mecz 2 = 7
     expect(papi.getUsage().count).toBe(7);
+    const rep = papi.getLastReport()!;
+    expect(rep.books.find((b) => b.slug === "superbet.pl")).toMatchObject({ status: "ok", offers: 4 });
+    expect(rep.books.find((b) => b.slug === "betclic.pl")?.status).toBe("brak-w-planie");
+  }, 20000);
+
+  it("„Sprawdź ponownie pominiętych” czyści listę pominiętych bukmacherów", async () => {
+    papi.resetBadSlugs();
+    calls.length = 0;
+    await new Promise((r) => setTimeout(r, 700));
+    vi.useFakeTimers({ now: Date.now() + 120_000, toFake: ["Date"] });
+    await papi.fetchPolishOffers([game], new Map(), undefined, true);
+    vi.useRealTimers();
+    // betclic.pl wraca do zapytania (i znów zostaje odrzucony) — więc był ponownie sprawdzony
+    expect(calls.some((c) => c.includes("betclic.pl"))).toBe(true);
   }, 20000);
 });

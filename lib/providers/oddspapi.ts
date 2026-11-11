@@ -62,12 +62,27 @@ function countRequest() {
 }
 
 /** Slugs OddsPapi rejected as invalid; skipped for 24 h so they never cost requests again. */
+interface BadSlugs { slugs: string[]; until: number; reasons?: Record<string, string> }
 function badSlugs(): string[] {
-  const b = getMeta<{ slugs: string[]; until: number }>("oddspapi:badSlugs");
+  const b = getMeta<BadSlugs>("oddspapi:badSlugs");
   return b && b.until > Date.now() ? b.slugs : [];
 }
-function markBad(slugs: string[]) {
-  setMeta("oddspapi:badSlugs", { slugs: [...new Set([...badSlugs(), ...slugs])], until: Date.now() + 24 * 3600 * 1000 });
+function markBad(slugs: string[], reason = "odrzucony przez OddsPapi") {
+  const cur = getMeta<BadSlugs>("oddspapi:badSlugs");
+  const keep = cur && cur.until > Date.now() ? cur : { slugs: [], until: 0, reasons: {} };
+  const reasons = { ...(keep.reasons ?? {}) };
+  for (const s of slugs) reasons[s] = reason;
+  setMeta("oddspapi:badSlugs", { slugs: [...new Set([...keep.slugs, ...slugs])], until: Date.now() + 24 * 3600 * 1000, reasons });
+}
+/** Forget skipped bookmakers (e.g. after a plan change) so the next refresh checks them again. */
+export function resetBadSlugs() {
+  setMeta("oddspapi:badSlugs", { slugs: [], until: 0, reasons: {} });
+}
+
+export interface BookReport { slug: string; key: string; status: "ok" | "brak-w-planie" | "nieznany" | "brak-kursow"; offers: number; note: string }
+/** What the last refresh got from each configured bookmaker (shown on the Polish odds page). */
+export function getLastReport(): { at: number; books: BookReport[] } | null {
+  return getMeta<{ at: number; books: BookReport[] }>("oddspapi:lastReport");
 }
 
 /**
@@ -215,13 +230,13 @@ async function fetchFixtureOdds(fixtureId: string, result: PapiResult, network: 
           }
         }
         if (refused.length) {
-          markBad(refused);
+          markBad(refused, "brak-w-planie");
           result.errors.push(`Twój plan OddsPapi nie obejmuje: ${refused.join(", ")} — pomijam na 24 h (usuń z ODDSPAPI_BOOKMAKERS, aby nie sprawdzać ponownie).`);
         }
         if (refused.length === slugs.length) result.fatal = "Klucz OddsPapi nie ma dostępu do żadnego z wybranych bukmacherów.";
         return out;
       }
-      markBad(slugs);
+      markBad(slugs, "brak-w-planie");
       result.errors.push(`Twój plan OddsPapi nie obejmuje: ${slugs.join(", ")}.`);
       result.fatal = "Klucz OddsPapi nie ma dostępu do żadnego z wybranych bukmacherów.";
       return {};
@@ -229,7 +244,7 @@ async function fetchFixtureOdds(fixtureId: string, result: PapiResult, network: 
     const invalid = msg.match(/Invalid bookmakers?:\s*(.+?)\.\s+Valid/s)?.[1]?.split(/,\s*/).map((s) => s.trim());
     result.errors.push(explainPapiError(msg));
     if (invalid?.length && network) {
-      markBad(invalid);
+      markBad(invalid, "nieznany");
       const rest = activeSlugs();
       if (rest.length) {
         try {
@@ -364,6 +379,16 @@ export async function fetchPolishOffers(games: GameRef[], playerIndex: Map<strin
   }
   result.books = [...books];
   if (network) {
+    const bad = getMeta<BadSlugs>("oddspapi:badSlugs");
+    const report: BookReport[] = [...bmap].map(([slug, key]) => {
+      const offers = result.offers.filter((o) => o.book === key).length;
+      const reason = bad && bad.until > Date.now() && bad.slugs.includes(slug) ? bad.reasons?.[slug] ?? "brak-w-planie" : null;
+      if (reason === "brak-w-planie") return { slug, key, status: "brak-w-planie", offers, note: "Twój plan OddsPapi nie obejmuje tego bukmachera (403). Pomijany przez 24 h." };
+      if (reason === "nieznany") return { slug, key, status: "nieznany", offers, note: "OddsPapi nie zna takiej nazwy — popraw ODDSPAPI_BOOKMAKERS (np. efortuna.pl, a nie fortuna.pl)." };
+      if (offers > 0) return { slug, key, status: "ok", offers, note: `${offers} kursów na dzisiejsze mecze.` };
+      return { slug, key, status: "brak-kursow", offers, note: "Dostęp jest, ale OddsPapi nie ma od niego kursów na te mecze NBA (bukmacher mógł jeszcze nie wystawić linii)." };
+    });
+    setMeta("oddspapi:lastReport", { at: Date.now(), books: report });
     const u = getUsage();
     setMeta("oddspapi:usage", { day: u.day, count: u.count, lastRefresh: Date.now() });
     result.fetchedAt = Date.now();

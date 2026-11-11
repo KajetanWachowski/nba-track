@@ -9,7 +9,7 @@ import { listManual } from "@/lib/manual-odds";
 import { MARKET_LABEL, type Market } from "@/lib/markets";
 import { loadSlate } from "@/lib/page-data";
 import { fetchRoster, easternDay } from "@/lib/providers/espn";
-import { getUsage, oddsPapiEnabled, refreshCost } from "@/lib/providers/oddspapi";
+import { getLastReport, getUsage, oddsPapiEnabled, refreshCost } from "@/lib/providers/oddspapi";
 import { ActionButton } from "@/components/ActionButton";
 import { ago } from "@/lib/format";
 import { getTeams } from "@/lib/store";
@@ -100,6 +100,38 @@ export default async function PolishOdds({ searchParams }: { searchParams: Promi
             ) : (
               <span className="text-sm text-warn">Dzienny limit aplikacji osiągnięty (ODDSPAPI_DAILY_LIMIT={u.limit}).</span>
             )}
+          </div>
+        );
+      })()}
+      {oddsPapiEnabled() && (() => {
+        const rep = getLastReport();
+        const label: Record<string, string> = { superbet: "Superbet", betclic: "Betclic", betfan: "Betfan", fortuna: "Fortuna", sts: "STS", forbet: "Forbet" };
+        const tone: Record<string, string> = { ok: "text-pos", "brak-w-planie": "text-neg", nieznany: "text-neg", "brak-kursow": "text-warn" };
+        return (
+          <div className="mb-4 rounded-xl border border-line bg-surface px-4 py-3 text-sm">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <span className="font-semibold">Co przyszło od bukmacherów {rep ? `(ostatnie pobranie ${ago(rep.at)})` : ""}</span>
+              {rep?.books.some((b) => b.status === "brak-w-planie" || b.status === "nieznany") && (
+                <ActionButton endpoint="/api/pl-refresh" body={{ day, resetBad: true }} label="Sprawdź ponownie pominiętych" note="np. po zmianie planu lub ustawień" />
+              )}
+            </div>
+            {!rep ? <p className="text-ink-3">Raport pojawi się po pierwszym kliknięciu „Pobierz kursy”.</p> : (
+              <ul className="space-y-1">
+                {rep.books.map((b) => (
+                  <li key={b.slug} className="flex flex-wrap gap-x-2">
+                    <span className="w-24 font-semibold">{label[b.key] ?? b.key}</span>
+                    <code className="text-xs text-ink-3">{b.slug}</code>
+                    <span className={tone[b.status]}>{b.note}</span>
+                  </li>
+                ))}
+                <li className="flex flex-wrap gap-x-2"><span className="w-24 font-semibold">Betfan</span><span className="text-ink-3">Nie ma go w OddsPapi — kursy tylko wpisane ręcznie (formularz poniżej).</span></li>
+              </ul>
+            )}
+            <p className="mt-2 text-xs text-ink-3">
+              Więcej polskich bukmacherów: dopisz w <code>.env.local</code> np.{" "}
+              <code>ODDSPAPI_BOOKMAKERS=superbet.pl:superbet,betclic.pl:betclic,efortuna.pl:fortuna,sts.pl:sts,iforbet.pl:forbet</code> i uruchom aplikację ponownie.
+              Każdy dodatkowy bukmacher zwiększa odpowiedź, ale nie liczbę zapytań.
+            </p>
           </div>
         );
       })()}
