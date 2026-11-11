@@ -118,6 +118,11 @@ export function PickCard({ b }: { b: BetEval }) {
         <Link href={`/analiza/${encodeURIComponent(b.id)}`} className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-sm font-bold text-black hover:opacity-90">
           Pełna analiza z wykresami →
         </Link>
+        {b.kind === "player" && (
+          <Link href={`/historia/${encodeURIComponent(b.id)}`} className="ml-2 mt-3 inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm font-semibold text-ink-2 hover:text-ink">
+            Historia typu ▶
+          </Link>
+        )}
         {a.category !== "najlepsze" && a.categoryReasons.length > 0 && (
           <ul className="mt-2 space-y-0.5 text-xs text-ink-3">{a.categoryReasons.map((r) => <li key={r}>• {r}</li>)}</ul>
         )}

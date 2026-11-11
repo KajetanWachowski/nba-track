@@ -84,7 +84,7 @@ export interface PlayerProjection {
   /** prawdopodobny bezpośredni rywal: zawodnik rywala na tej samej pozycji z największą liczbą minut */
   likelyDefender: { name: string; min: number; stl: number; blk: number; pf: number; games: number; pos: PosGroup } | null;
   /** nieobecni w obronie rywala i zmierzony wpływ (mecze rywala bez nich) */
-  oppMissing: { name: string; status: string; min: number; samePos: boolean; nWithout: number; effect: number | null }[];
+  oppMissing: { athleteId?: string; name: string; status: string; min: number; samePos: boolean; nWithout: number; effect: number | null }[];
 }
 
 export interface ModelParams {
@@ -347,7 +347,7 @@ export function projectPlayer(ctx: LeagueContext, athleteId: string, g: PlayerGa
         for (const s of BASE_STATS) stats[s].factors.oppMissing *= effect;
       }
     }
-    oppMissing.push({ name: ab.name, status: ab.status, min: mean(e.mins), samePos, nWithout: without.size, effect });
+    oppMissing.push({ athleteId: ab.athleteId, name: ab.name, status: ab.status, min: mean(e.mins), samePos, nWithout: without.size, effect });
   }
   for (const s of BASE_STATS) stats[s].factors.oppMissing = clamp(stats[s].factors.oppMissing, 0.9, 1.15);
 

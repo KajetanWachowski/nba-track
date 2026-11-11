@@ -57,7 +57,12 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
-      <Link href="/value-bets" className="text-sm text-accent">← Wszystkie propozycje</Link>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Link href="/value-bets" className="text-sm text-accent">← Wszystkie propozycje</Link>
+        {b.kind === "player" && (
+          <Link href={`/historia/${encodeURIComponent(b.id)}`} className="rounded-lg bg-accent px-3 py-1.5 text-sm font-bold text-black hover:opacity-90">Historia typu — grafiki ▶</Link>
+        )}
+      </div>
 
       {/* nagłówek */}
       <header className="rounded-2xl border border-line bg-surface p-4 sm:p-5">
