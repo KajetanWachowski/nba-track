@@ -20,7 +20,7 @@ import { applyCalibration, brier, fitCalibration, logLoss, reliability, saveCali
 import { buildContext, restDays } from "./model/context";
 import { pHomeCovers, pOverTotal, projectGame } from "./model/game";
 import { DEFAULT_PARAMS, distribution, playedGames, probOver, projectPlayer, type ModelParams, type TeammateAbsence } from "./model/player";
-import { mean } from "./model/stats";
+import { mean, normalInv } from "./model/stats";
 import { clv as clvFn, noVig } from "./odds/math";
 import { fetchSeasonLog, type SeasonLogGame } from "./providers/espn";
 import type { GameLineRow, GameRow, PlayerGameRow, PropLineRow } from "./store";
@@ -91,6 +91,10 @@ export interface BacktestSummary {
   distributionChecks: { market: string; n: number; coverage80: number; rmseModel: number; rmseLine: number }[];
   /** out-of-sample accuracy per market (test dates) — used to gate recommendations per bet type */
   byMarket: Record<string, { n: number; logLossRaw: number; logLossMarket: number; logLossCal: number; brierCal: number; brierMarket: number }>;
+  /** best estimate of the outcome = w·model projection + (1−w)·market-implied mean; w fitted on training dates */
+  projectionBlend: Record<string, { w: number; n: number; rmseModel: number; rmseMarket: number; rmseBlend: number }>;
+  /** how often bets the calibrated model rated ≥ X% actually won (test dates) */
+  highProb: { threshold: number; n: number; promised: number; observed: number }[];
   notes: string[];
 }
 
@@ -282,8 +286,8 @@ export async function runBacktest(opts: { trainFrac?: number; minEv?: number; si
   if (opts.tune) {
     log("tuning on training dates only…");
     const grid: ModelParams[] = [];
-    for (const priorStrength of [150, 300, 600])
-      for (const rateHalfLife of [8, 15, 30]) grid.push({ ...DEFAULT_PARAMS, priorStrength, rateHalfLife });
+    for (const priorStrength of [150, 300])
+      for (const rateHalfLife of [15, 30]) grid.push({ ...DEFAULT_PARAMS, priorStrength, rateHalfLife });
     for (const p of grid) {
       const rows = (await generateRows(all, p, 1500, trainDays)).filter((r) => r.scope === "player" && r.y !== null);
       const ll = logLoss(rows.map((r) => r.rawProb), rows.map((r) => r.y as number));
@@ -291,6 +295,20 @@ export async function runBacktest(opts: { trainFrac?: number; minEv?: number; si
       log(`  prior=${p.priorStrength} hl=${p.rateHalfLife}: logloss ${ll.toFixed(4)} (n=${rows.length})`);
     }
     params = tuning.reduce((a, b) => (b.trainLogLoss < a.trainLogLoss ? b : a)).params;
+    // stage 2: the minutes model — chosen by minutes error (RMSE) on training dates only
+    let bestMin = { rmse: Infinity, p: params };
+    for (const minRecentWeight of [0.3, 0.5, 0.7])
+      for (const minHalfLife of [3, 6]) {
+        const p = { ...params, minRecentWeight, minHalfLife };
+        const rs = (await generateRows(all, p, 400, trainDays)).filter((r) => r.scope === "player");
+        const uniq = new Map(rs.map((r) => [`${r.gameId}|${r.subjectId}`, r]));
+        const errs = [...uniq.values()].map((r) => (r.actMin! - r.projMin!) ** 2);
+        const rmse = Math.sqrt(errs.reduce((a, b) => a + b, 0) / Math.max(1, errs.length));
+        log(`  minuty: waga ostatnich=${minRecentWeight} półtrwanie=${minHalfLife}: RMSE ${rmse.toFixed(3)} min`);
+        if (rmse < bestMin.rmse) bestMin = { rmse, p };
+      }
+    params = bestMin.p;
+    notes.push(`Model minut dobrany na meczach treningowych: waga ostatnich meczów ${params.minRecentWeight}, półtrwanie ${params.minHalfLife} meczów (błąd ${bestMin.rmse.toFixed(2)} min).`);
     setMeta("modelParams", params);
     notes.push(`Parametry dobrane tylko na meczach treningowych: siła priora=${params.priorStrength}, okres półtrwania formy=${params.rateHalfLife} meczów.`);
   }
@@ -352,6 +370,34 @@ export async function runBacktest(opts: { trainFrac?: number; minEv?: number; si
   notes.push("Linie meczowe: ESPN archiwizuje tylko kursy zamknięcia, więc backtest meczów używa kursów zamknięcia (trudniejszy test, bez CLV).");
   notes.push("Nieobecności w historycznych meczach pochodzą z protokołów (kto nie zagrał) — zastępują przedmeczowy raport kontuzji.");
 
+  // market-implied mean: P(X > line) = p_market  →  mean ≈ line + sd · Φ⁻¹(p_market)
+  const implied = (r: BacktestRow) => r.line + (r.projSd ?? 1) * normalInv(r.marketProb);
+  const projectionBlend: BacktestSummary["projectionBlend"] = {};
+  for (const market of [...new Set(rows.filter((r) => r.scope === "player").map((r) => r.market))]) {
+    const tr = rows.filter((r) => r.scope === "player" && r.market === market && r.fold === "train" && r.projMean !== undefined);
+    const te = rows.filter((r) => r.scope === "player" && r.market === market && r.fold === "test" && r.projMean !== undefined);
+    if (tr.length < 100 || te.length < 50) continue;
+    const rmse = (rs: BacktestRow[], w: number) => Math.sqrt(rs.reduce((s, r) => s + (r.actual - (w * r.projMean! + (1 - w) * implied(r))) ** 2, 0) / rs.length);
+    let w = 0, best = Infinity;
+    for (let k = 0; k <= 20; k++) {
+      const e = rmse(tr, k / 20);
+      if (e < best) { best = e; w = k / 20; }
+    }
+    projectionBlend[market] = { w, n: te.length, rmseModel: rmse(te, 1), rmseMarket: rmse(te, 0), rmseBlend: rmse(te, w) };
+  }
+  setMeta("projectionBlend", Object.fromEntries(Object.entries(projectionBlend).map(([m, v]) => [m, v.w])));
+  const highProb = [0.55, 0.6, 0.65].map((threshold) => {
+    let n = 0, promised = 0, won = 0;
+    for (const r of testPlayer) {
+      const p = r.calProb!;
+      const side = p >= 0.5;
+      const pp = side ? p : 1 - p;
+      if (pp < threshold) continue;
+      n++; promised += pp; won += side ? (r.y as number) : 1 - (r.y as number);
+    }
+    return { threshold, n, promised: n ? promised / n : NaN, observed: n ? won / n : NaN };
+  });
+
   const distributionChecks = [...new Set(testPlayer.map((r) => r.market))].sort().map((market) => {
     const rs = testPlayer.filter((r) => r.market === market);
     const rmse = (f: (r: BacktestRow) => number) => Math.sqrt(rs.reduce((s, r) => s + (r.actual - f(r)) ** 2, 0) / rs.length);
@@ -392,6 +438,8 @@ export async function runBacktest(opts: { trainFrac?: number; minEv?: number; si
     tuning,
     distributionChecks,
     byMarket,
+    projectionBlend,
+    highProb,
     notes,
   };
 

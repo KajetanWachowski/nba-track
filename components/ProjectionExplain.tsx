@@ -1,7 +1,13 @@
 import type { Explanation } from "@/lib/model/explain";
 
 /** „Skąd ta projekcja?” — prosty rozkład na kroki (bez procentów i żargonu). */
-export function ProjectionExplain({ e, line, unit }: { e: Explanation; line?: number | null; unit: string }) {
+export function ProjectionExplain({ e, line, unit, estimate }: {
+  e: Explanation;
+  line?: number | null;
+  unit: string;
+  /** model vs rynek vs najlepszy szacunek (waga z backtestu) */
+  estimate?: { model: number; market: number | null; combined: number; modelWeight: number } | null;
+}) {
   const steps = e.steps.filter((s) => s.key !== "base");
   const maxAbs = Math.max(0.5, ...steps.map((s) => Math.abs(s.delta)));
   const fmt = (x: number) => `${x >= 0 ? "+" : "−"}${Math.abs(x).toFixed(1)}`;
@@ -31,9 +37,23 @@ export function ProjectionExplain({ e, line, unit }: { e: Explanation; line?: nu
           <span className="num text-lg font-black">{e.projection.toFixed(1)}</span>
         </li>
       </ol>
+      {estimate && estimate.market !== null && (
+        <div className="rounded-lg border border-accent/40 bg-surface-2 p-3">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="font-semibold">Najlepszy szacunek (model + rynek)</span>
+            <span className="num text-lg font-black text-accent">{estimate.combined.toFixed(1)}</span>
+          </div>
+          <p className="mt-1 text-xs text-ink-2">
+            Model: <b>{estimate.model.toFixed(1)}</b> · kursy bukmacherów sugerują: <b>{estimate.market.toFixed(1)}</b>. W testach na rozegranych meczach dla tego rynku
+            najmniejszy błąd dawało połączenie <b>{Math.round(estimate.modelWeight * 100)}% modelu</b> i {Math.round((1 - estimate.modelWeight) * 100)}% rynku
+            {estimate.modelWeight <= 0.1 ? " — tutaj linia bukmachera była dokładniejsza od modelu, więc model służy głównie do wykrywania ryzyk" : ""}.
+          </p>
+        </div>
+      )}
       {line !== undefined && line !== null && (
         <p className="text-xs text-ink-2">
-          Linia {line} — projekcja jest o <b>{Math.abs(e.projection - line).toFixed(1)} {unit}</b> {e.projection < line ? "niżej" : "wyżej"}. To średnia z symulacji;
+          Linia {line} — {estimate && estimate.market !== null ? "najlepszy szacunek" : "projekcja"} jest o <b>{Math.abs((estimate && estimate.market !== null ? estimate.combined : e.projection) - line).toFixed(1)} {unit}</b>{" "}
+          {(estimate && estimate.market !== null ? estimate.combined : e.projection) < line ? "niżej" : "wyżej"}. To średnia;
           rzeczywiste wyniki rozrzucają się wokół niej, dlatego szansa nie wynosi 0% ani 100%.
         </p>
       )}

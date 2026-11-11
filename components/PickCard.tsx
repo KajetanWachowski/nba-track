@@ -145,6 +145,12 @@ export function PickCard({ b }: { b: BetEval }) {
         <Details b={b} />
       </Section>
 
+      {b.alternatives && b.alternatives.length > 1 && (
+        <Section title="Wybór linii — szansa a kurs" count={b.alternatives.length}>
+          <LineChooser b={b} />
+        </Section>
+      )}
+
       <Section title="Porównanie kursów u bukmacherów" count={b.offers.length}>
         <OddsCompare b={b} />
       </Section>
@@ -169,7 +175,7 @@ function Details({ b }: { b: BetEval }) {
     {s?.explain && (
       <div>
         <div className="label mb-2">Skąd ta projekcja?</div>
-        <ProjectionExplain e={s.explain} line={b.line} unit={b.marketLabel.toLowerCase()} />
+        <ProjectionExplain e={s.explain} line={b.line} unit={b.marketLabel.toLowerCase()} estimate={s.estimate} />
       </div>
     )}
     <div className="grid gap-5 md:grid-cols-2">
@@ -206,6 +212,10 @@ function Details({ b }: { b: BetEval }) {
           <Row k="Odchylenie standardowe" v={num(s.sd)} term="sd" />
           <Row k="Trend (na mecz, 10 meczów)" v={`${s.trendPerGame >= 0 ? "+" : ""}${num(s.trendPerGame, 2)}`} term="trend" />
           <Row k="Regularność" v={s.consistency} />
+          <div className="label mb-1 mt-4">Historia</div>
+          <Row k={`Przeciw ${s.matchup.opp} (ten i poprzedni sezon)`} v={s.vsOpp.length ? `${s.vsOpp.filter((v) => v.hit).length}/${s.vsOpp.length} · ${s.vsOpp.map((v) => v.value).join(", ")}` : "brak meczów"} />
+          <Row k="U siebie: po stronie zakładu / średnia" v={s.homeAway.home.n ? `${s.homeAway.home.hits}/${s.homeAway.home.n} · ${num(s.homeAway.home.avg)}` : "—"} />
+          <Row k="Na wyjeździe: po stronie zakładu / średnia" v={s.homeAway.away.n ? `${s.homeAway.away.hits}/${s.homeAway.away.n} · ${num(s.homeAway.away.avg)}` : "—"} />
           <div className="label mb-1 mt-4">Rola i minuty</div>
           <Row k="Minuty: 5 meczów / sezon" v={`${num(s.minutes.l5)} / ${num(s.minutes.season)}`} />
           <Row k="Minuty w projekcji" v={`${num(s.minutes.projected)} ± ${num(s.minutes.sd)}`} />
@@ -229,6 +239,34 @@ function Details({ b }: { b: BetEval }) {
         <div className="text-ink-3">Linia meczowa — szczegóły drużyn na stronie meczu. <Link className="text-accent" href={`/games/${b.gameId}`}>Otwórz mecz →</Link></div>
       )}
     </div>
+    </div>
+  );
+}
+
+function LineChooser({ b }: { b: BetEval }) {
+  const alts = b.alternatives!;
+  const bestEv = Math.max(...alts.filter((a) => a.playable).map((a) => a.ev), -Infinity);
+  return (
+    <div>
+      <p className="mb-2 text-xs text-ink-3">
+        {b.side === "under" ? "Wyższa" : "Niższa"} linia = większa szansa, ale niższy kurs. Szukaj linii, przy której szansa jest wysoka, a EV wciąż dodatnie.
+      </p>
+      <div className="overflow-x-auto">
+        <table className="num w-full min-w-[420px] text-sm">
+          <thead><tr className="label text-left"><th className="py-1">Linia</th><th>Szansa</th><th>Kurs</th><th>EV</th><th>Ocena</th></tr></thead>
+          <tbody>
+            {alts.map((a) => (
+              <tr key={`${a.line}`} className={`border-t border-line ${a.current ? "bg-surface-2" : ""}`}>
+                <td className="py-1.5 font-semibold">{b.side === "under" ? "poniżej" : "powyżej"} {a.line}{a.current && <span className="ml-1 text-[10px] text-accent">ta karta</span>}</td>
+                <td>{pct(a.prob, 0)}</td>
+                <td>{dec(a.price)} <span className="text-[11px] text-ink-3">{a.playable ? a.book : `${a.book} (USA)`}</span></td>
+                <td className={a.ev > 0 ? (a.playable && a.ev === bestEv ? "font-bold text-pos" : "text-pos") : "text-neg"}>{signedPct(a.ev, 1)}</td>
+                <td className="text-xs text-ink-3">{CATEGORY[a.category as Category]?.label ?? a.category}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

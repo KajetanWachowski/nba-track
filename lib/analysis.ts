@@ -6,7 +6,9 @@ import { BASE_STATS, PLAYER_LINE_MARKETS, type PlayerMarket, type StatKey } from
 import { buildContext, posGroup, restDays, type PosGroup } from "./model/context";
 import { getModelParams } from "./model/params";
 import { distribution, playedGames, probOver, projectPlayer, type PlayerProjection } from "./model/player";
-import { mean, median } from "./model/stats";
+import { mean, median, normalInv } from "./model/stats";
+import { noVig } from "./odds/math";
+import { getMeta } from "./db";
 import { explainProjection, type Explanation } from "./model/explain";
 import { addDays, easternDay, fetchInjuries, fetchRoster, fetchScoreboard, fetchSeasonLog, type Injury, type SeasonLogGame } from "./providers/espn";
 import { getAthlete, getGameLine, getTeams, type GameRow, type PlayerGameRow, type TeamRow } from "./store";
@@ -53,7 +55,7 @@ export interface PlayerAnalysis {
   next: { game: GameRow; opp: TeamRow | null; home: boolean; restDays: number | null } | null;
   projection: {
     minutes: PlayerProjection["minutes"];
-    markets: Record<string, { mean: number; median: number; p10: number; p90: number; atLeast: number[]; explain: Explanation | null }>;
+    markets: Record<string, { mean: number; median: number; p10: number; p90: number; atLeast: number[]; explain: Explanation | null; estimate: { model: number; market: number | null; combined: number; modelWeight: number; line: number } | null }>;
     factors: Record<StatKey, PlayerProjection["stats"][StatKey]["factors"]>;
     warnings: string[];
     notes: string[];
@@ -159,12 +161,22 @@ export async function getPlayerAnalysis(athleteId: string): Promise<PlayerAnalys
     });
     if (proj) {
       const markets: NonNullable<PlayerAnalysis["projection"]>["markets"] = {};
+      const blendW = getMeta<Record<string, number>>("projectionBlend") ?? {};
+      const bookLines = getDb().prepare("SELECT market, line, over_dec, under_dec FROM prop_lines WHERE game_id = ? AND athlete_id = ? AND book = 'draftkings' AND kind = 'ou'").all(ng.id, athleteId) as { market: string; line: number; over_dec: number | null; under_dec: number | null }[];
       for (const m of [...PLAYER_LINE_MARKETS, "dd", "td"] as PlayerMarket[]) {
         const d = distribution(proj, m);
         const isYes = m === "dd" || m === "td";
         markets[m] = {
           mean: d.mean, median: d.median, p10: d.p10, p90: d.p90, atLeast: isYes ? [1, probOver(proj, m, 0.5).p] : d.atLeast,
           explain: isYes ? null : explainProjection({ market: m, proj, simMean: d.mean, history: gctx.playerGames(athleteId), prior, ctx: gctx, oppId, oppAbbr: teams.get(oppId)?.abbr ?? "", home }),
+          estimate: (() => {
+            const bl = bookLines.find((l) => l.market === m && l.over_dec && l.under_dec);
+            if (isYes || !bl) return null;
+            const pOver = noVig([bl.over_dec!, bl.under_dec!])[0];
+            const market = bl.line + d.sd * normalInv(pOver);
+            const w = blendW[m] ?? 1;
+            return { model: d.mean, market, combined: w * d.mean + (1 - w) * market, modelWeight: w, line: bl.line };
+          })(),
         };
       }
       projection = {

@@ -138,3 +138,29 @@ describe("niskie kursy", () => {
     expect(mid.rankScore - 100 * (0.6 - 0.86)).toBeGreaterThan(low.rankScore - 0);
   });
 });
+
+import { normalInv, normalCdf } from "@/lib/model/stats";
+describe("nowe elementy oceny", () => {
+  const steady = rows(Array.from({ length: 20 }, (_, i) => ({ fg3m: i % 4 === 0 ? 2 : 0, fg3a: 3 })));
+  const base = { history: steady, teamRecentGameIds: steady.map((r) => r.game_id), proj: proj(0.6) };
+  it("odwrotna dystrybuanta rozkładu normalnego", () => {
+    for (const p of [0.05, 0.3, 0.5, 0.8, 0.99]) expect(normalCdf(normalInv(p))).toBeCloseTo(p, 6);
+  });
+  it("najlepszy szacunek łączy model i rynek wagą z backtestu", () => {
+    const a = assessPlayer(input({ ...base, marketProb: 0.5, projectionWeight: 0.25, projSd: 1 }));
+    // Under 1.5, rynek 50% → mediana rynku ≈ linia 1.5; model 0.6 → 0.25·0.6 + 0.75·1.5 = 1.275
+    expect(a.stats!.estimate!.market).toBeCloseTo(1.5, 6);
+    expect(a.stats!.estimate!.combined).toBeCloseTo(1.275, 6);
+  });
+  it("kurs lepszy od rynku + zgodny model → argument za; niezgodny model → ryzyko", () => {
+    const agree = assessPlayer(input({ ...base, price: 1.95, marketProb: 0.55, modelProb: 0.57 }));
+    expect(agree.pros.some((p) => p.includes("lepszy od uczciwej ceny rynku"))).toBe(true);
+    const disagree = assessPlayer(input({ ...base, price: 1.95, marketProb: 0.55, modelProb: 0.5 }));
+    expect(disagree.risks.some((r) => r.text.includes("model ocenia szansę niżej niż rynek"))).toBe(true);
+  });
+  it("słaba historia z rywalem jest ryzykiem", () => {
+    const h = rows(Array.from({ length: 12 }, (_, i) => ({ fg3m: i % 3 === 0 ? 3 : 0, fg3a: 4 }))).map((r, i) => ({ ...r, opp_id: i % 3 === 0 ? "O" : "Z" }));
+    const a = assessPlayer(input({ ...base, history: h, teamRecentGameIds: h.map((r) => r.game_id) }));
+    expect(a.risks.some((r) => r.text.startsWith("Przeciw OPP tylko 0/4"))).toBe(true);
+  });
+});

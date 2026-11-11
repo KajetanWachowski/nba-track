@@ -89,6 +89,41 @@ export default function History() {
             </Card>
           )}
 
+          {bt.projectionBlend && Object.keys(bt.projectionBlend).length > 0 && (
+            <div className="mb-6 grid gap-4 xl:grid-cols-2">
+              <Card title="Projekcja: model, rynek czy oba? (błąd średni, niżej = lepiej)">
+                <div className="overflow-x-auto">
+                  <table className="num w-full min-w-[460px] text-sm">
+                    <thead><tr className="label text-left"><th className="py-1">Rynek</th><th>Model</th><th>Linia rynku</th><th>Połączenie</th><th>Waga modelu</th></tr></thead>
+                    <tbody>
+                      {Object.entries(bt.projectionBlend).sort((a, b) => b[1].w - a[1].w).map(([m, v]) => (
+                        <tr key={m} className="border-t border-line">
+                          <td className="py-1.5 font-semibold">{groupLabel(m)}</td><td>{num(v.rmseModel, 2)}</td><td>{num(v.rmseMarket, 2)}</td>
+                          <td className="font-bold text-pos">{num(v.rmseBlend, 2)}</td><td>{Math.round(v.w * 100)}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="mt-2 text-xs text-ink-3">Waga dobrana na meczach treningowych, błąd liczony na późniejszych. „Najlepszy szacunek” na kartach używa tej wagi.</p>
+              </Card>
+              {bt.highProb && (
+                <Card title="Czy wysokie szanse są prawdziwe?">
+                  <table className="num w-full text-sm">
+                    <thead><tr className="label text-left"><th className="py-1">Typy z szansą</th><th>Liczba</th><th>Model obiecywał</th><th>Weszło</th></tr></thead>
+                    <tbody>
+                      {bt.highProb.map((h) => (
+                        <tr key={h.threshold} className="border-t border-line"><td className="py-1.5">≥ {pct(h.threshold, 0)}</td><td>{h.n}</td><td>{pct(h.promised)}</td>
+                          <td className={h.observed >= h.promised - 0.02 ? "text-pos" : "text-warn"}>{pct(h.observed)}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="mt-2 text-xs text-ink-3">Jeśli „weszło” jest wyraźnie niższe niż „obiecywał”, model przy tych szansach jest zbyt pewny siebie. Dlatego nie zwiększamy sztucznie wagi projekcji.</p>
+                </Card>
+              )}
+            </div>
+          )}
+
           <div className="mb-6 grid gap-4 xl:grid-cols-2">
             <Card title="Kalibracja — czy np. 60% oznacza w praktyce ok. 60%?">
               <ReliabilityChart data={bt.reliability} />

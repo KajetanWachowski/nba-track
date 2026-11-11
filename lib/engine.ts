@@ -91,6 +91,8 @@ export interface BetEval {
   warnings: string[];
   isValue: boolean;
   assessment: Assessment;
+  /** inne linie tego samego zawodnika, rynku i strony — do wyboru linii (szansa vs kurs) */
+  alternatives?: { line: number | null; prob: number; price: number; book: string; playable: boolean; ev: number; category: string; current: boolean }[];
 }
 
 export interface SlateAnalysis {
@@ -371,6 +373,7 @@ async function runSlate(day: string, force: boolean): Promise<SlateAnalysis> {
     else if (o.dec > grp[i].dec || (o.dec === grp[i].dec && o.oppDec && !grp[i].oppDec)) grp[i] = o;
   }
   const bets: BetEval[] = [];
+  const blendW = getMeta<Record<string, number>>("projectionBlend") ?? {};
   const marketProven = (market: string, kind: "player" | "game") => {
     const m = bt?.byMarket?.[market];
     if (m && m.n >= 100) {
@@ -463,6 +466,8 @@ async function runSlate(day: string, force: boolean): Promise<SlateAnalysis> {
         proj, ctx, oppId, oppAbbr: teams.get(oppId)?.abbr ?? "", teamAbbrById: (id) => teams.get(id)?.abbr ?? "", home,
         restDays: restDays(ctx, teamId, day), selfStatus: injOf.get(bet.subjectId)?.status ?? null, injuriesAvailable,
         calibrated: Boolean(cal.player.fittedAt), marketProven: marketProven(bet.market, "player"), hasPriorSeason: (priorByAthlete.get(bet.subjectId) ?? 0) >= 10,
+        prior: priorLogs.get(bet.subjectId), projectionWeight: blendW[bet.market] ?? 1,
+        projSd: bet.projection ? (bet.projection.p90 - bet.projection.p10) / 2.563 : undefined,
       });
       if (bet.assessment.stats && bet.projection) {
         bet.assessment.stats.projection = { mean: bet.projection.mean, p10: bet.projection.p10, p90: bet.projection.p90 };
@@ -486,6 +491,22 @@ async function runSlate(day: string, force: boolean): Promise<SlateAnalysis> {
     bet.confidence = a.quality.level === "wysoka" ? "High" : a.quality.level === "średnia" ? "Medium" : "Low";
     bet.confidenceScore = a.quality.score;
     bets.push(bet);
+  }
+  // line chooser: all lines of the same player / market / side, e.g. Over 10.5 / 11.5 / 12.5 rebounds
+  const ladder = new Map<string, BetEval[]>();
+  for (const b of bets) {
+    if (b.kind !== "player" || b.side === "yes") continue;
+    const k = `${b.gameId}|${b.subjectId}|${b.market}|${b.side}`;
+    if (!ladder.has(k)) ladder.set(k, []);
+    ladder.get(k)!.push(b);
+  }
+  for (const list of ladder.values()) {
+    if (list.length < 2) continue;
+    const sorted = [...list].sort((x, y) => (x.line ?? 0) - (y.line ?? 0));
+    for (const b of list)
+      b.alternatives = sorted.map((o) => ({
+        line: o.line, prob: o.modelProb, price: o.price, book: o.book, playable: o.playable, ev: o.ev, category: o.assessment.category, current: o === b,
+      }));
   }
   bets.sort((a, b) => b.assessment.rankScore - a.assessment.rankScore);
   try {

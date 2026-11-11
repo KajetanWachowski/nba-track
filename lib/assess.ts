@@ -13,7 +13,8 @@ import { COMBOS, type PlayerMarket, type StatKey } from "./markets";
 import type { LeagueContext } from "./model/context";
 import type { Explanation } from "./model/explain";
 import type { PlayerProjection } from "./model/player";
-import { mean, median, sd, slope } from "./model/stats";
+import { mean, median, normalInv, sd, slope } from "./model/stats";
+import type { SeasonLogGame } from "./providers/espn";
 import type { PlayerGameRow } from "./store";
 
 export type Category = "najlepsze" | "dobre" | "obserwuj" | "odrzucone";
@@ -58,6 +59,12 @@ export interface PlayerStatsBlock {
   context: { blowoutProb: number; selfStatus: string | null; teammatesOut: string[]; roleChange: string | null };
   /** „Skąd ta projekcja?” — kroki od średniej sezonu do projekcji */
   explain?: Explanation;
+  /** mecze z tym rywalem (ten i poprzedni sezon), od najstarszego */
+  vsOpp: { value: number; date: string; season: "ten" | "poprzedni"; hit: boolean }[];
+  /** wyniki u siebie / na wyjeździe w tym sezonie */
+  homeAway: { home: { n: number; hits: number; avg: number }; away: { n: number; hits: number; avg: number } };
+  /** model vs linia bukmachera vs najlepszy szacunek (łączony z wagą z backtestu) */
+  estimate: { model: number; market: number | null; combined: number; modelWeight: number } | null;
 }
 
 export interface Assessment {
@@ -132,6 +139,12 @@ export interface AssessInput {
   calibrated: boolean;
   marketProven: { proven: boolean; detail: string };
   hasPriorSeason: boolean;
+  /** mecze z poprzedniego sezonu (do historii z rywalem) */
+  prior?: SeasonLogGame[];
+  /** waga modelu w najlepszym szacunku wyniku dla tego rynku (z backtestu); brak = 1 */
+  projectionWeight?: number;
+  /** odchylenie rozkładu projekcji (jak w backteście) */
+  projSd?: number;
 }
 
 /** Ocena zakładu na zawodnika. */
@@ -288,6 +301,55 @@ export function assessPlayer(x: AssessInput): Assessment {
   }
   if (!x.injuriesAvailable) risk("istotne", "Raport kontuzji jest niedostępny — nie wiadomo, kto zagra.");
 
+  // historia z tym rywalem i dom/wyjazd
+  const vsOpp: PlayerStatsBlock["vsOpp"] = [
+    ...(x.prior ?? []).filter((r) => r.oppId === x.oppId && r.min > 0).map((r) => {
+      const v = statOf(r as unknown as Pick<PlayerGameRow, StatKey>, x.market);
+      return { value: v, date: r.date, season: "poprzedni" as const, hit: isHit(v) };
+    }),
+    ...played.filter((r) => r.opp_id === x.oppId).map((r) => ({ value: statOf(r, x.market), date: r.date, season: "ten" as const, hit: isHit(statOf(r, x.market)) })),
+  ].sort((a, b) => a.date.localeCompare(b.date));
+  if (x.side !== "yes" && vsOpp.length >= 3) {
+    const h = vsOpp.filter((v) => v.hit).length;
+    const vals = vsOpp.map((v) => v.value).join(", ");
+    if (h / vsOpp.length <= 0.34) risk("drobne", `Przeciw ${x.oppAbbr} tylko ${h}/${vsOpp.length} meczów ${sideWord} linii (${vals}).`);
+    else if (h / vsOpp.length >= 0.75) pros.push(`Przeciw ${x.oppAbbr} ${h}/${vsOpp.length} meczów ${sideWord} linii (${vals}).`);
+  }
+  const split = (rs: PlayerGameRow[]) => {
+    const vs = rs.map((r) => statOf(r, x.market));
+    return { n: vs.length, hits: vs.filter(isHit).length, avg: mean(vs) };
+  };
+  const homeAway = { home: split(played.filter((r) => r.home)), away: split(played.filter((r) => !r.home)) };
+  const here = x.home ? homeAway.home : homeAway.away;
+  if (x.side !== "yes" && here.n >= 4) {
+    const where = x.home ? "u siebie" : "na wyjeździe";
+    if (here.hits / here.n <= 0.25) risk("drobne", `${where[0].toUpperCase()}${where.slice(1)} tylko ${here.hits}/${here.n} meczów ${sideWord} linii (średnio ${f1(here.avg)}).`);
+    else if (here.hits / here.n >= 0.75) pros.push(`${where[0].toUpperCase()}${where.slice(1)} ${here.hits}/${here.n} meczów ${sideWord} linii (średnio ${f1(here.avg)}).`);
+  }
+
+  // kurs względem rynku bez marży (podejście „de-vig”): czy polski kurs jest lepszy od uczciwej ceny rynku?
+  if (x.marketProb !== null && x.playable && !x.oneWay) {
+    const fair = 1 / x.marketProb;
+    const marketEv = x.marketProb * x.price - 1;
+    const agrees = x.modelProb >= x.marketProb - 0.02;
+    if (marketEv >= 0.02 && agrees) pros.push(`Kurs ${x.price.toFixed(2)} jest lepszy od uczciwej ceny rynku (${fair.toFixed(2)}, +${(marketEv * 100).toFixed(1)}%) i model to potwierdza.`);
+    else if (marketEv >= 0.02 && !agrees) risk("istotne", `Kurs jest lepszy od rynku (+${(marketEv * 100).toFixed(1)}%), ale model ocenia szansę niżej niż rynek (${pct(x.modelProb)} vs ${pct(x.marketProb)}).`);
+  }
+
+  // najlepszy szacunek wyniku = model + linia rynku (waga z backtestu)
+  let estimate: PlayerStatsBlock["estimate"] = null;
+  if (proj && x.side !== "yes") {
+    const pm = parts.reduce((s, k) => s + x.proj.stats[k].mean, 0);
+    const w = x.projectionWeight ?? 1;
+    let market: number | null = null;
+    const spread = x.projSd && x.projSd > 0 ? x.projSd : sdv;
+    if (x.marketProb !== null && !x.oneWay && Number.isFinite(spread) && spread > 0) {
+      const pOver = x.side === "under" ? 1 - x.marketProb : x.marketProb;
+      market = x.line + spread * normalInv(pOver);
+    }
+    estimate = { model: pm, market, combined: market === null ? pm : w * pm + (1 - w) * market, modelWeight: market === null ? 1 : w };
+  }
+
   // rynek i kurs
   if (x.marketProb !== null && Math.abs(x.rawProb - x.marketProb) > 0.12)
     risk("istotne", `Model (${pct(x.rawProb)}) i rynek (${pct(x.marketProb)}) mocno się różnią — rynek może znać informacje, których model nie ma.`);
@@ -348,6 +410,9 @@ export function assessPlayer(x: AssessInput): Assessment {
       statFactor, opp3PctAllowed: team?.shooting.fg3PctAllowed ?? null, home: x.home, restDays: x.restDays,
     },
     context: { blowoutProb: bo.prob, selfStatus: x.selfStatus, teammatesOut: outMates.map((t) => `${t.name} (${t.status})`), roleChange },
+    vsOpp,
+    homeAway,
+    estimate,
   };
 
   return finish({ ...x, kind: "player" }, pros, risks, qScore, qf, stats);

@@ -169,7 +169,7 @@ export function PlayerLab({ a, initialMarket, initialLine, cal }: { a: PlayerAna
             <section className="rounded-2xl border border-line bg-surface p-4">
               <div className="label mb-2">Skąd ta projekcja? ({m.label.toLowerCase()})</div>
               {a.projection.markets[market]?.explain ? (
-                <ProjectionExplain e={a.projection.markets[market].explain!} line={line} unit={m.label.toLowerCase()} />
+                <ProjectionExplain e={a.projection.markets[market].explain!} line={line} unit={m.label.toLowerCase()} estimate={a.projection.markets[market].estimate} />
               ) : <p className="text-sm text-ink-3">Brak rozkładu dla tego rynku.</p>}
               {[...a.projection.notes, ...a.projection.warnings].map((w) => <p key={w} className="mt-2 text-xs text-warn">⚠ {w}</p>)}
               <details className="mt-3 text-sm">
