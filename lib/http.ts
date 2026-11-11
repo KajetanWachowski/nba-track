@@ -59,8 +59,18 @@ async function doFetch<T>(url: string, key: string, opts: FetchOpts): Promise<Fe
       const res = await fetch(url, { signal: ctrl.signal, headers: { Accept: "application/json", ...(opts.headers ?? {}) } });
       clearTimeout(timer);
       if (res.status === 404) throw new DataUnavailableError(opts.source, "not found (404)", 404);
-      if (res.status === 401 || res.status === 403)
-        throw new DataUnavailableError(opts.source, `unauthorized (${res.status})`, res.status);
+      if (res.status === 401 || res.status === 403) {
+        const body = await res.text().catch(() => "");
+        let detail = "";
+        try {
+          const j = JSON.parse(body);
+          const e = j.error ?? j;
+          detail = [typeof e === "string" ? e : e.message, e.details ?? j.details].filter((x) => typeof x === "string").join(" — ");
+        } catch {
+          detail = body.slice(0, 160);
+        }
+        throw new DataUnavailableError(opts.source, `brak dostępu (${res.status})${detail ? `: ${detail}` : ""}`, res.status);
+      }
       if (!res.ok) {
         // surface the provider's own explanation (e.g. {"error":{"message":…,"details":…}})
         const body = await res.text().catch(() => "");

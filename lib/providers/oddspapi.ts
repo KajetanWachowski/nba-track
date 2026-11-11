@@ -89,10 +89,32 @@ async function get<T>(path: string, params: Record<string, string | number>, ttl
   }
   const keyed = new URLSearchParams(q);
   keyed.set("apiKey", config.oddsPapiKey);
-  countRequest();
-  const r = await fetchJson<T>(`${BASE}${path}?${keyed}`, { ttl: 0, force: true, retries: 0, source: `OddsPapi ${path}`, key });
-  return r.data;
+  // OddsPapi v4 paces requests per endpoint (~0.5 s for /odds): space them out and, on a 429,
+  // wait the time the API asks for. Rate-limited attempts are not counted against the budget.
+  for (let attempt = 0; ; attempt++) {
+    const wait = Math.min(MIN_GAP_MS, lastCall + MIN_GAP_MS - Date.now());
+    if (wait > 0) await sleep(wait);
+    lastCall = Date.now();
+    try {
+      const r = await fetchJson<T>(`${BASE}${path}?${keyed}`, { ttl: 0, force: true, retries: 0, source: `OddsPapi ${path}`, key });
+      countRequest();
+      return r.data;
+    } catch (e) {
+      const msg = (e as Error).message;
+      if (/HTTP 429/.test(msg) && attempt < 3) {
+        const sec = Number(msg.match(/wait ([\d.]+) seconds/)?.[1] ?? 1);
+        await sleep(Math.min(5000, sec * 1000 + 300));
+        continue;
+      }
+      if (!/HTTP 429/.test(msg)) countRequest(); // a refused request still counts at OddsPapi
+      throw e;
+    }
+  }
 }
+
+const MIN_GAP_MS = 650;
+let lastCall = 0;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export interface PapiBookmaker {
   slug: string;
@@ -178,6 +200,31 @@ async function fetchFixtureOdds(fixtureId: string, result: PapiResult, network: 
       return {};
     }
     const msg = (e as Error).message;
+    if (/\(403\)/.test(msg) && network) {
+      if (slugs.length > 1) {
+        // which bookmaker is not in the plan? probe each once, remember the refused ones for 24 h
+        const out: Record<string, any> = {};
+        const refused: string[] = [];
+        for (const slug of slugs) {
+          try {
+            Object.assign(out, (await get<any>("/odds", { fixtureId, bookmakers: slug }, 60, network)).bookmakerOdds ?? {});
+          } catch (e2) {
+            if (/\(403\)/.test((e2 as Error).message)) refused.push(slug);
+            else result.errors.push(explainPapiError((e2 as Error).message));
+          }
+        }
+        if (refused.length) {
+          markBad(refused);
+          result.errors.push(`Twój plan OddsPapi nie obejmuje: ${refused.join(", ")} — pomijam na 24 h (usuń z ODDSPAPI_BOOKMAKERS, aby nie sprawdzać ponownie).`);
+        }
+        if (refused.length === slugs.length) result.fatal = "Klucz OddsPapi nie ma dostępu do żadnego z wybranych bukmacherów.";
+        return out;
+      }
+      markBad(slugs);
+      result.errors.push(`Twój plan OddsPapi nie obejmuje: ${slugs.join(", ")}.`);
+      result.fatal = "Klucz OddsPapi nie ma dostępu do żadnego z wybranych bukmacherów.";
+      return {};
+    }
     const invalid = msg.match(/Invalid bookmakers?:\s*(.+?)\.\s+Valid/s)?.[1]?.split(/,\s*/).map((s) => s.trim());
     result.errors.push(explainPapiError(msg));
     if (invalid?.length && network) {
@@ -207,6 +254,8 @@ export interface PapiResult {
   errors: string[];
   /** true when some data has never been downloaded (user has to click refresh) */
   notFetched: boolean;
+  /** set when continuing makes no sense (e.g. no bookmaker accessible) — the refresh stops */
+  fatal?: string;
 }
 
 const flipName = (s: string) => (s.includes(",") ? s.split(",").map((x) => x.trim()).reverse().join(" ") : s);
@@ -241,6 +290,7 @@ export async function fetchPolishOffers(games: GameRef[], playerIndex: Map<strin
       (x) => normName(x.homeName) === normName(home) && normName(x.awayName) === normName(away) && Math.abs(Date.parse(x.date) - Date.parse(f.startTime)) < 12 * 3600 * 1000,
     );
     if (!g) continue;
+    if (result.fatal) break; // do not spend requests on the remaining games
     result.matchedFixtures++;
     const bookmakerOdds = await fetchFixtureOdds(f.fixtureId, result, network);
     for (const [slug, bk] of Object.entries<any>(bookmakerOdds)) {
