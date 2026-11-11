@@ -13,7 +13,7 @@ export interface BarDatum {
  * Game-by-game bars against a betting line. Bars over the line use the positive token, others a
  * muted neutral — identity is also given by the legend and the tooltip text, never color alone.
  */
-export function LineBarChart({ data, line, height = 260, showValues }: { data: BarDatum[]; line: number | null; height?: number; showValues?: boolean }) {
+export function LineBarChart({ data, line, height = 260, showValues, side = "over" }: { data: BarDatum[]; line: number | null; height?: number; showValues?: boolean; /** strona zakładu: przy „under” na zielono są wyniki poniżej linii */ side?: "over" | "under" }) {
   const [hover, setHover] = useState<number | null>(null);
   const W = 720;
   const H = height;
@@ -29,8 +29,8 @@ export function LineBarChart({ data, line, height = 260, showValues }: { data: B
   return (
     <div className="relative">
       <div className="mb-2 flex gap-4 text-xs text-ink-3" aria-hidden>
-        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: "var(--pos)" }} />Powyżej linii</span>
-        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: "var(--muted-bar)" }} />Poniżej linii</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: "var(--pos)" }} />{side === "under" ? "Poniżej linii (trafione)" : "Powyżej linii"}</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: "var(--muted-bar)" }} />{side === "under" ? "Powyżej linii" : "Poniżej linii"}</span>
         {line !== null && <span className="flex items-center gap-1.5"><span className="w-4 border-t-2 border-dashed" style={{ borderColor: "var(--ink-2)" }} />Linia {line}</span>}
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label={`Wykres ${n} meczów${line !== null ? ` na tle linii ${line}` : ""}`} onMouseLeave={() => setHover(null)}>
@@ -44,7 +44,7 @@ export function LineBarChart({ data, line, height = 260, showValues }: { data: B
         ))}
         {data.map((d, i) => {
           const x = pad.l + i * slot + (slot - bw) / 2;
-          const over = line !== null && d.value > line;
+          const over = line !== null && (side === "under" ? d.value < line : d.value > line);
           const top = y(d.value);
           const h = Math.max(0, y(0) - top);
           const r = Math.min(4, bw / 2, h);

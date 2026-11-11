@@ -1,8 +1,14 @@
 import Link from "next/link";
-import { ChartCard, CoverageTile, GamesVsLine, Gauge, HBars, OutcomeHistogram, Waterfall, toneFill, toneText, type Tone } from "@/components/AnalysisCharts";
+import { ChartCard, CoverageTile, Gauge, HBars, OutcomeHistogram, Waterfall, toneFill, toneText, type Tone } from "@/components/AnalysisCharts";
 import { CATEGORY } from "@/lib/categories";
+import { GameBarsPanel } from "@/components/GameBarsPanel";
+import { LineBarChart } from "@/components/LineChart";
 import { Term } from "@/components/Term";
-import { Notice } from "@/components/ui";
+import { Notice, TeamLogo } from "@/components/ui";
+import { getPlayerAnalysis } from "@/lib/analysis";
+import { statOf } from "@/lib/assess";
+import type { PlayerMarket } from "@/lib/markets";
+import { getTeams } from "@/lib/store";
 import { shortDate, tipTime } from "@/lib/format";
 import { buildNarrative } from "@/lib/narrative";
 import { loadSlate } from "@/lib/page-data";
@@ -34,6 +40,20 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
   const qTone: Tone = as.quality.score >= 75 ? "pos" : as.quality.score >= 55 ? "warn" : "neg";
   const vTone: Tone = as.value.ev >= 0.02 ? "pos" : as.value.ev >= -0.02 ? "warn" : "neg";
   const bestDec = Math.max(...b.offers.map((o) => o.eff));
+  const teams = getTeams();
+  const team = teams.get(b.teamId) ?? [...teams.values()].find((t) => t.abbr === b.teamAbbr);
+  const opp = [...teams.values()].find((t) => t.abbr === b.oppAbbr);
+  const pa = b.kind === "player" ? await getPlayerAnalysis(b.subjectId).catch(() => null) : null;
+  const side: "over" | "under" = over ? "over" : "under";
+  const bars = (pa?.games ?? []).filter((g) => g.min > 0).map((g) => ({
+    key: g.game_id,
+    value: statOf(g, b.market as PlayerMarket),
+    opp: pa?.teams[g.opp_id]?.abbr ?? "",
+    logo: pa?.teams[g.opp_id]?.logo,
+    date: shortDate(g.date),
+    home: !!g.home,
+    min: Math.round(g.min),
+  }));
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
@@ -46,11 +66,21 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
           <span className="text-xs text-ink-3">{b.gameLabel} · {tipTime(b.tipoff)}</span>
         </div>
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <div className="min-w-0">
+          {pa?.headshot && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={pa.headshot} alt={b.subjectName} width={130} height={95} className="h-20 w-28 shrink-0 rounded-2xl bg-surface-2 object-cover object-top sm:h-24 sm:w-32" />
+          )}
+          <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-black leading-tight sm:text-3xl">{n.headline}</h1>
             <div className="mt-1 text-sm text-ink-3">
               {b.kind === "player" ? <Link className="hover:text-accent" href={`/players/${b.subjectId}?market=${b.market}&line=${b.line ?? ""}`}>{b.subjectName}</Link> : b.subjectName}
-              {b.kind === "player" && ` · ${b.teamAbbr} vs ${b.oppAbbr}`}
+            </div>
+            <div className="mt-2 flex items-center gap-2 text-sm font-bold">
+              <TeamLogo src={team?.logo} abbr={b.teamAbbr} size={28} />
+              <span>{b.teamAbbr}</span>
+              <span className="text-ink-3">{s?.matchup.home ? "vs" : "@"}</span>
+              <TeamLogo src={opp?.logo} abbr={b.oppAbbr} size={28} />
+              <span>{b.oppAbbr}</span>
             </div>
           </div>
           <div className="text-right">
@@ -75,26 +105,27 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
         </section>
       )}
 
+      {bars.length > 0 && (
+        <ChartCard title={`${b.marketLabel} mecz po meczu`} sub="Najedź na słupek, żeby zobaczyć datę, rywala i minuty.">
+          <GameBarsPanel games={bars} line={b.line} side={side} statLabel={b.marketLabel} vsOpp={b.oppAbbr} />
+        </ChartCard>
+      )}
+
       {s && (
         <div className="grid gap-4 lg:grid-cols-2">
-          <ChartCard title="Ostatnie 10 meczów vs linia" sub={`Wynik zawodnika w każdym meczu (${b.marketLabel.toLowerCase()}).`}
-            legend={[{ tone: "pos", label: "trafione" }, { tone: "neg", label: "nietrafione" }, { tone: "warn", label: "o włos (±10% linii)" }]}>
-            <GamesVsLine over={over} line={b.line} games={s.recent.map((r) => ({ value: r.value, label: r.opp, sub: shortDate(r.date) }))} />
-          </ChartCard>
           <ChartCard title="Jak może się skończyć ten mecz?" sub="Rozkład wyników z 8 000 symulacji modelu (przed kalibracją). Zielone = zakład wchodzi.">
             <OutcomeHistogram bins={s.hist ?? []} line={b.line} over={over} projection={s.explain?.projection ?? b.projection?.mean ?? null} />
             <p className="mt-2 text-[11px] text-ink-3">
               Surowe symulacje dają {Math.round(b.rawProb * 100)}%, ale ostateczna szansa ({Math.round(b.modelProb * 100)}%) jest skalibrowana: łączy model z rynkiem według tego, jak oba sprawdzały się w backteście. Surowy model bywa zbyt pewny siebie.
             </p>
           </ChartCard>
+          {s.explain && (
+            <ChartCard title="Skąd ta projekcja?" sub={s.explain.headline}>
+              <Waterfall start={s.explain.start} end={s.explain.projection} line={b.line} over={over}
+                steps={s.explain.steps.filter((x) => x.key !== "base").map((x) => ({ label: x.label, delta: x.delta, text: x.text }))} />
+            </ChartCard>
+          )}
         </div>
-      )}
-
-      {s?.explain && (
-        <ChartCard title="Skąd ta projekcja?" sub={s.explain.headline}>
-          <Waterfall start={s.explain.start} end={s.explain.projection} line={b.line} over={over}
-            steps={s.explain.steps.filter((x) => x.key !== "base").map((x) => ({ label: x.label, delta: x.delta, text: x.text }))} />
-        </ChartCard>
       )}
 
       {/* narracja */}
@@ -126,14 +157,15 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
 
         {s && (
           <ChartCard title="Minuty w ostatnich meczach" sub={`Kreska = minuty zakładane przez model (${s.minutes.projected.toFixed(1)}).`}>
-            <GamesVsLine neutral over line={Math.round(s.minutes.projected * 10) / 10} lineLabel="model" height={170}
-              games={s.recent.map((r) => ({ value: Math.round(r.min), label: r.opp }))} />
+            <LineBarChart height={200} line={Math.round(s.minutes.projected * 10) / 10}
+              data={bars.slice(-10).map((g) => ({ key: g.key, value: g.min, label: g.opp, logo: g.logo, tooltip: [`${g.home ? "vs" : "@"} ${g.opp} · ${g.date}`, `${g.min} min (model: ${s.minutes.projected.toFixed(1)})`] }))} />
           </ChartCard>
         )}
 
         {s && s.vsOpp.length > 0 && (
           <ChartCard title={`Mecze z ${b.oppAbbr}`} sub="Ten i poprzedni sezon.">
-            <GamesVsLine over={over} line={b.line} height={170} games={s.vsOpp.map((v) => ({ value: v.value, label: shortDate(v.date), sub: v.season === "ten" ? "ten sezon" : "poprz." }))} />
+            <LineBarChart height={200} line={b.line} side={side}
+              data={s.vsOpp.map((v, i) => ({ key: `${v.date}-${i}`, value: v.value, label: shortDate(v.date), tooltip: [`vs ${b.oppAbbr} · ${shortDate(v.date)} (${v.season === "ten" ? "ten sezon" : "poprzedni sezon"})`, `${b.marketLabel}: ${v.value} (${v.hit ? "trafione" : "nietrafione"})`] }))} />
           </ChartCard>
         )}
 
