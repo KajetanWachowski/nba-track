@@ -9,7 +9,9 @@ import { listManual } from "@/lib/manual-odds";
 import { MARKET_LABEL, type Market } from "@/lib/markets";
 import { loadSlate } from "@/lib/page-data";
 import { fetchRoster, easternDay } from "@/lib/providers/espn";
-import { oddsPapiEnabled } from "@/lib/providers/oddspapi";
+import { getUsage, oddsPapiEnabled, refreshCost } from "@/lib/providers/oddspapi";
+import { ActionButton } from "@/components/ActionButton";
+import { ago } from "@/lib/format";
 import { getTeams } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
@@ -81,6 +83,26 @@ export default async function PolishOdds({ searchParams }: { searchParams: Promi
           znanym agregatorze — jego kursy wpisujesz poniżej ręcznie.
         </Notice>
       )}
+      {oddsPapiEnabled() && (() => {
+        const u = getUsage();
+        const cost = refreshCost(pre.length);
+        return (
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-line bg-surface px-4 py-3 text-sm">
+            <div>
+              <div className="font-semibold">Kursy Superbet / Betclic z OddsPapi</div>
+              <div className="text-ink-3">
+                Ostatnie pobranie: {u.lastRefresh ? ago(u.lastRefresh) : "jeszcze nie pobrano"} · dziś zużyto <b className="text-ink">{u.count}</b> z {u.limit} zapytań ·
+                pobranie teraz kosztuje ok. <b className="text-ink">{cost}</b>. Strony nie pobierają kursów same — oszczędzają limit.
+              </div>
+            </div>
+            {u.remaining >= cost ? (
+              <ActionButton endpoint="/api/pl-refresh" body={{ day }} label="Pobierz kursy" />
+            ) : (
+              <span className="text-sm text-warn">Dzienny limit aplikacji osiągnięty (ODDSPAPI_DAILY_LIMIT={u.limit}).</span>
+            )}
+          </div>
+        );
+      })()}
       <Notice tone="neutral">
         Podatek od stawki 12%: <b>{tax.enabled ? `uwzględniany (efektywny kurs = kurs × ${(1 - tax.rate).toFixed(2)})` : "nieuwzględniany"}</b>
         {tax.enabled && tax.exempt.length ? ` · bez podatku: ${tax.exempt.map(bookTitle).join(", ")}` : ""}. Zmienisz to w <Link className="underline" href="/settings">Ustawieniach</Link>.

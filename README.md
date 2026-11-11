@@ -48,6 +48,12 @@ mają pierwszeństwo przed kursem z API. Model liczy prawdopodobieństwo dokład
 także gdy różni się od DraftKings. Zawodnicy spoza składów obu drużyn (pomyłki w feedzie) są odrzucani.
 Podatek 12% od stawki można włączyć w Ustawieniach (domyślnie wyłączony).
 
+**Oszczędzanie limitu OddsPapi:** strony nigdy same nie pytają OddsPapi — używają zapisanych kursów.
+Zapytania idą tylko po kliknięciu **„Pobierz kursy”** na stronie „Polskie kursy” (koszt ≈ 1 + liczba meczów;
+strona pokazuje koszt i dzisiejsze zużycie). Aplikacja ma własny dzienny limit `ODDSPAPI_DAILY_LIMIT`
+(domyślnie 30), nie ponawia odrzuconych zapytań, a błędną nazwę bukmachera zapamiętuje na 24 h, żeby
+nie płacić za nią ponownie. Automatyczne odświeżanie włączysz przez `ODDSPAPI_AUTO_REFRESH_MIN` (np. 60).
+
 **Klucz The Odds API:** załóż konto na <https://the-odds-api.com> (darmowy plan: 500 kredytów/mies.),
 wpisz `ODDS_API_KEY=...` do `.env.local`. Koszt = rynki × regiony za event; odpowiedzi są cache'owane
 30 min, propsy pobierane tylko dla meczów, które się nie zaczęły. Klucz nigdy nie trafia do cache ani logów.

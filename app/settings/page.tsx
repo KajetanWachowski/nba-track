@@ -8,7 +8,7 @@ import { getModelParams } from "@/lib/model/params";
 import { oddsApiEnabled } from "@/lib/providers/oddsapi";
 import { TaxToggle } from "@/components/TaxToggle";
 import { PL_BOOKS, getTaxSettings } from "@/lib/books";
-import { bookmakerMap, listBookmakers, oddsPapiEnabled } from "@/lib/providers/oddspapi";
+import { NotFetchedError, bookmakerMap, getUsage, listBookmakers, oddsPapiEnabled } from "@/lib/providers/oddspapi";
 
 export const dynamic = "force-dynamic";
 
@@ -18,11 +18,12 @@ export default async function Settings() {
   let papiError: string | null = null;
   if (oddsPapiEnabled()) {
     try {
-      papiBooks = (await listBookmakers()).filter((b) => b.polish);
+      papiBooks = (await listBookmakers()).filter((b) => b.polish); // cache only — costs nothing
     } catch (e) {
-      papiError = (e as Error).message;
+      papiError = e instanceof NotFetchedError ? "Lista bukmacherów pojawi się po pierwszym „Pobierz kursy” na stronie Polskie kursy." : (e as Error).message;
     }
   }
+  const papiUsage = getUsage();
   const bmap = bookmakerMap();
   const db = getDb();
   const count = (sql: string) => (db.prepare(sql).get() as { n: number }).n;
@@ -72,13 +73,20 @@ export default async function Settings() {
         <Card title="Polscy bukmacherzy (Superbet · Betclic · Betfan)">
           <TaxToggle enabled={tax.enabled} exempt={tax.exempt} books={PL_BOOKS} rate={tax.rate} />
           <div className="label mb-1 mt-5">OddsPapi</div>
+          {oddsPapiEnabled() && (
+            <p className="mb-2 text-sm text-ink-2">
+              Zapytania dziś: <b>{papiUsage.count}</b> / {papiUsage.limit} (limit aplikacji, <code>ODDSPAPI_DAILY_LIMIT</code>) · ostatnie pobranie {ago(papiUsage.lastRefresh)} ·
+              tryb: {config.oddsPapiAutoRefreshMin > 0 ? `automatycznie co ${config.oddsPapiAutoRefreshMin} min` : "tylko po kliknięciu „Pobierz kursy”"}.
+              Limit Twojego planu sprawdzisz na koncie oddspapi.io.
+            </p>
+          )}
           {!oddsPapiEnabled() ? (
             <p className="text-sm text-ink-2">
               Wyłączone. Załóż konto na oddspapi.io (jest darmowy plan), wpisz <code>ODDSPAPI_KEY=…</code> do <code>.env.local</code> i zrestartuj aplikację.
               Bez klucza kursy polskich bukmacherów wpisujesz ręcznie na stronie „Polskie kursy”.
             </p>
           ) : papiError ? (
-            <p className="text-sm text-neg">Błąd OddsPapi: {papiError} — sprawdź, czy klucz jest poprawny i aktywny.</p>
+            <p className="text-sm text-ink-2">{papiError}</p>
           ) : (
             <>
               <p className="mb-2 text-sm text-ink-2">Polscy bukmacherzy widoczni dla Twojego klucza (✓ = pobierany przez aplikację):</p>

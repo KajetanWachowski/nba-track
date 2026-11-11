@@ -16,7 +16,8 @@
  *   /odds?fixtureId&bookmakers       → { bookmakerOdds: { [slug]: { markets: { [marketId]: { outcomes: { [outcomeId]: { players: { [playerId]: { price, active, playerName } } } } } } } } }
  */
 import { config } from "../config";
-import { fetchJson } from "../http";
+import { getMeta, setMeta } from "../db";
+import { fetchJson, readCache } from "../http";
 import type { Market } from "../markets";
 import { normName, type GameRef, type Offer } from "./oddsapi";
 
@@ -42,11 +43,54 @@ export function bookmakerMap(): Map<string, string> {
   );
 }
 
-async function get<T>(path: string, params: Record<string, string | number>, ttl: number): Promise<T> {
+// ---------------- request budget ----------------
+export class NotFetchedError extends Error {}
+
+interface Usage { day: string; count: number; lastRefresh: number | null }
+const today = () => new Date().toISOString().slice(0, 10);
+
+export function getUsage(): Usage & { limit: number; remaining: number } {
+  const u = getMeta<Usage>("oddspapi:usage");
+  const cur: Usage = u && u.day === today() ? u : { day: today(), count: 0, lastRefresh: u?.lastRefresh ?? null };
+  return { ...cur, limit: config.oddsPapiDailyLimit, remaining: Math.max(0, config.oddsPapiDailyLimit - cur.count) };
+}
+
+function countRequest() {
+  const u = getUsage();
+  setMeta("oddspapi:usage", { day: u.day, count: u.count + 1, lastRefresh: u.lastRefresh });
+}
+
+/** Slugs OddsPapi rejected as invalid; skipped for 24 h so they never cost requests again. */
+function badSlugs(): string[] {
+  const b = getMeta<{ slugs: string[]; until: number }>("oddspapi:badSlugs");
+  return b && b.until > Date.now() ? b.slugs : [];
+}
+function markBad(slugs: string[]) {
+  setMeta("oddspapi:badSlugs", { slugs: [...new Set([...badSlugs(), ...slugs])], until: Date.now() + 24 * 3600 * 1000 });
+}
+
+/**
+ * GET with two modes:
+ *  - network=false (default, used by every page render): cached response only, never a request.
+ *  - network=true  (explicit refresh): fetches when the cache is older than `ttl`, counting each
+ *    real request against the daily budget; no automatic retries (each attempt would cost).
+ */
+async function get<T>(path: string, params: Record<string, string | number>, ttl: number, network = false): Promise<T> {
   const q = new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)]));
+  const key = `oddspapi4:${path}?${q}`;
+  const cached = readCache<T>(key);
+  if (!network || (cached && Date.now() - cached.fetchedAt < ttl * 1000)) {
+    if (cached) return cached.data;
+    throw new NotFetchedError(`${path} not fetched yet`);
+  }
+  if (getUsage().remaining <= 0) {
+    if (cached) return cached.data;
+    throw new Error(`dzienny limit zapytań OddsPapi (${config.oddsPapiDailyLimit}) wykorzystany — ustaw ODDSPAPI_DAILY_LIMIT, aby go zmienić`);
+  }
   const keyed = new URLSearchParams(q);
   keyed.set("apiKey", config.oddsPapiKey);
-  const r = await fetchJson<T>(`${BASE}${path}?${keyed}`, { ttl, source: `OddsPapi ${path}`, key: `oddspapi4:${path}?${q}` });
+  countRequest();
+  const r = await fetchJson<T>(`${BASE}${path}?${keyed}`, { ttl: 0, force: true, retries: 0, source: `OddsPapi ${path}`, key });
   return r.data;
 }
 
@@ -58,8 +102,8 @@ export interface PapiBookmaker {
 }
 
 /** Bookmakers visible to this key; `polish` = Polish site/brand. */
-export async function listBookmakers(): Promise<(PapiBookmaker & { polish: boolean })[]> {
-  const rows = await get<PapiBookmaker[]>("/bookmakers", {}, 6 * 3600);
+export async function listBookmakers(network = false): Promise<(PapiBookmaker & { polish: boolean })[]> {
+  const rows = await get<PapiBookmaker[]>("/bookmakers", {}, 7 * 86400, network);
   return rows.map((b) => ({ ...b, polish: /\.pl$|\bPL\b|betfan|lvbet|etoto|totolotek/i.test(`${b.slug} ${b.bookmakerName}`) || /\.pl$/.test(b.slug) }));
 }
 
@@ -75,9 +119,9 @@ export interface PapiMarket {
 }
 
 let marketCache: { at: number; byId: Map<number, PapiMarket> } | null = null;
-async function marketIndex() {
+async function marketIndex(network = false) {
   if (marketCache && Date.now() - marketCache.at < 6 * 3600 * 1000) return marketCache.byId;
-  const markets = await get<PapiMarket[]>("/markets", { sportId: NBA_SPORT }, 24 * 3600);
+  const markets = await get<PapiMarket[]>("/markets", { sportId: NBA_SPORT }, 7 * 86400, network);
   marketCache = { at: Date.now(), byId: new Map(markets.map((m) => [m.marketId, m])) };
   return marketCache.byId;
 }
@@ -108,10 +152,6 @@ export function canonicalMarket(m: Pick<PapiMarket, "marketType" | "period" | "p
 
 export type PapiOffer = Offer & { kind: "ou" | "milestone" | "yes" | "game" };
 
-/**
- * Odds for one fixture. If the combined request is refused (e.g. a plan that limits bookmakers
- * per request or does not include one of them), retry one bookmaker at a time and keep the rest.
- */
 /** Shorten OddsPapi's "Invalid bookmaker(s)" error (which lists ~400 slugs) to the useful part. */
 export function explainPapiError(msg: string): string {
   const valid = msg.match(/Valid bookmakers are:\s*(.+)$/s);
@@ -121,23 +161,37 @@ export function explainPapiError(msg: string): string {
   return `nieznany slug bukmachera${invalid ? ` „${invalid}”` : ""} — popraw ODDSPAPI_BOOKMAKERS w .env.local. Dostępne polskie: ${pl.join(", ") || "brak"}`;
 }
 
-async function fetchFixtureOdds(fixtureId: string, slugs: string[], result: PapiResult): Promise<Record<string, any>> {
+const activeSlugs = () => [...bookmakerMap().keys()].filter((s) => !badSlugs().includes(s));
+
+/**
+ * Odds for one fixture. An "invalid bookmaker" rejection marks those slugs bad (24 h) and retries
+ * once with the rest — one extra request at most, never one per bookmaker.
+ */
+async function fetchFixtureOdds(fixtureId: string, result: PapiResult, network: boolean): Promise<Record<string, any>> {
+  const slugs = activeSlugs();
+  if (!slugs.length) return {};
   try {
-    return (await get<any>("/odds", { fixtureId, bookmakers: slugs.join(",") }, config.ttl.oddsPapi)).bookmakerOdds ?? {};
+    return (await get<any>("/odds", { fixtureId, bookmakers: slugs.join(",") }, 60, network)).bookmakerOdds ?? {};
   } catch (e) {
-    if (slugs.length < 2) {
-      result.errors.push(`${slugs[0]}: ${explainPapiError((e as Error).message)}`);
+    if (e instanceof NotFetchedError) {
+      result.notFetched = true;
       return {};
     }
-    const out: Record<string, any> = {};
-    for (const slug of slugs) {
-      try {
-        Object.assign(out, (await get<any>("/odds", { fixtureId, bookmakers: slug }, config.ttl.oddsPapi)).bookmakerOdds ?? {});
-      } catch (e2) {
-        result.errors.push(`${slug}: ${explainPapiError((e2 as Error).message)}`);
+    const msg = (e as Error).message;
+    const invalid = msg.match(/Invalid bookmakers?:\s*(.+?)\.\s+Valid/s)?.[1]?.split(/,\s*/).map((s) => s.trim());
+    result.errors.push(explainPapiError(msg));
+    if (invalid?.length && network) {
+      markBad(invalid);
+      const rest = activeSlugs();
+      if (rest.length) {
+        try {
+          return (await get<any>("/odds", { fixtureId, bookmakers: rest.join(",") }, 60, network)).bookmakerOdds ?? {};
+        } catch (e2) {
+          result.errors.push(explainPapiError((e2 as Error).message));
+        }
       }
     }
-    return out;
+    return {};
   }
 }
 
@@ -151,23 +205,33 @@ export interface PapiResult {
   fetchedAt: number;
   /** per-bookmaker/per-game failures that did not stop the rest */
   errors: string[];
+  /** true when some data has never been downloaded (user has to click refresh) */
+  notFetched: boolean;
 }
 
 const flipName = (s: string) => (s.includes(",") ? s.split(",").map((x) => x.trim()).reverse().join(" ") : s);
 const titleOf = (key: string) => ({ superbet: "Superbet", betclic: "Betclic", betfan: "Betfan", fortuna: "Fortuna", sts: "STS", forbet: "Forbet" })[key] ?? key;
 
 /** Polish-book offers for the given ESPN games; players are matched by name to the two teams' rosters. */
-export async function fetchPolishOffers(games: GameRef[], playerIndex: Map<string, string>, rosterTeam?: Map<string, string>): Promise<PapiResult> {
-  const result: PapiResult = { offers: [], matchedFixtures: 0, skippedMarkets: 0, foreignPlayers: 0, books: [], fetchedAt: Date.now(), errors: [] };
+export async function fetchPolishOffers(games: GameRef[], playerIndex: Map<string, string>, rosterTeam?: Map<string, string>, network = false): Promise<PapiResult> {
+  const result: PapiResult = { offers: [], matchedFixtures: 0, skippedMarkets: 0, foreignPlayers: 0, books: [], fetchedAt: getUsage().lastRefresh ?? 0, errors: [], notFetched: false };
   if (!games.length) return result;
   const bmap = bookmakerMap();
   const days = games.map((g) => g.date.slice(0, 10)).sort();
   const addDay = (d: string, n: number) => new Date(Date.parse(d) + n * 86400000).toISOString().slice(0, 10);
-  const [participants, fixtures, markets] = await Promise.all([
-    get<Record<string, string>>("/participants", { sportId: NBA_SPORT, tournamentId: NBA_TOURNAMENT }, 7 * 86400),
-    get<any[]>("/fixtures", { tournamentId: NBA_TOURNAMENT, from: addDay(days[0], -1), to: addDay(days[days.length - 1], 1) }, 600),
-    marketIndex(),
-  ]);
+  let participants: Record<string, string>, fixtures: any[], markets: Map<number, PapiMarket>;
+  try {
+    // sequential on purpose: each call may cost a request
+    participants = await get<Record<string, string>>("/participants", { sportId: NBA_SPORT, tournamentId: NBA_TOURNAMENT }, 7 * 86400, network);
+    markets = await marketIndex(network);
+    fixtures = await get<any[]>("/fixtures", { tournamentId: NBA_TOURNAMENT, from: addDay(days[0], -1), to: addDay(days[days.length - 1], 1) }, 60, network);
+  } catch (e) {
+    if (e instanceof NotFetchedError) {
+      result.notFetched = true;
+      return result;
+    }
+    throw e;
+  }
   const books = new Set<string>();
   for (const f of fixtures) {
     if (f.statusId !== 0) continue;
@@ -178,7 +242,7 @@ export async function fetchPolishOffers(games: GameRef[], playerIndex: Map<strin
     );
     if (!g) continue;
     result.matchedFixtures++;
-    const bookmakerOdds = await fetchFixtureOdds(f.fixtureId, [...bmap.keys()], result);
+    const bookmakerOdds = await fetchFixtureOdds(f.fixtureId, result, network);
     for (const [slug, bk] of Object.entries<any>(bookmakerOdds)) {
       if (!bk.bookmakerIsActive || bk.suspended) continue;
       const key = bmap.get(slug) ?? slug;
@@ -248,6 +312,16 @@ export async function fetchPolishOffers(games: GameRef[], playerIndex: Map<strin
     }
   }
   result.books = [...books];
-  result.fetchedAt = Date.now();
+  if (network) {
+    const u = getUsage();
+    setMeta("oddspapi:usage", { day: u.day, count: u.count, lastRefresh: Date.now() });
+    result.fetchedAt = Date.now();
+  }
   return result;
+}
+
+/** Requests a refresh would cost now: fixtures + one per pre-game match (+ one-off metadata). */
+export function refreshCost(preGames: number): number {
+  const missing = ["/participants", "/markets"].filter((p) => !readCache(`oddspapi4:${p}?${new URLSearchParams(p === "/markets" ? { sportId: String(NBA_SPORT) } : { sportId: String(NBA_SPORT), tournamentId: String(NBA_TOURNAMENT) })}`)).length;
+  return 1 + preGames + missing;
 }

@@ -28,7 +28,7 @@ import { syncSlate } from "./sync";
 import { getMeta, setMeta } from "./db";
 import { effectivePrice, getTaxSettings } from "./books";
 import { listManual, manualToOffers } from "./manual-odds";
-import { fetchPolishOffers, oddsPapiEnabled } from "./providers/oddspapi";
+import { fetchPolishOffers, getUsage as getPapiUsage, oddsPapiEnabled } from "./providers/oddspapi";
 import { logPredictions } from "./tracking";
 
 export const P_OUT: Record<string, number> = { OUT: 1, DOUBTFUL: 0.75, QUESTIONABLE: 0.35, "DAY-TO-DAY": 0.25, PROBABLE: 0.05 };
@@ -254,13 +254,20 @@ async function runSlate(day: string, force: boolean): Promise<SlateAnalysis> {
       const refs: GameRef[] = games.filter((g) => g.state === "pre").map((g) => ({ gameId: g.id, date: g.date, homeId: g.home_id, awayId: g.away_id, homeName: teams.get(g.home_id)?.name ?? "", awayName: teams.get(g.away_id)?.name ?? "" }));
       const playerIndex = new Map<string, string>();
       for (const [id, n] of rosterName) playerIndex.set(normName(n), id);
-      const r = await fetchPolishOffers(refs, playerIndex, rosterTeam);
+      // Page renders never spend OddsPapi requests: cached odds only, unless auto-refresh is configured.
+      const u = getPapiUsage();
+      const auto = config.oddsPapiAutoRefreshMin > 0 && (!u.lastRefresh || Date.now() - u.lastRefresh > config.oddsPapiAutoRefreshMin * 60_000);
+      const r = await fetchPolishOffers(refs, playerIndex, rosterTeam, auto);
       for (const o of r.offers) {
         if (manualKeys.has(`${o.gameId}|${o.market}|${o.subjectId}|${o.side}|${o.line ?? ""}|${o.book}`)) continue; // manual entry wins
         if (o.kind === "milestone" && (o.dec < 1.25 || o.dec > 6)) continue; // extreme ladder rungs carry heavy, unknown vig
         offers.push({ ...o, openLine: null, openPrice: null, sideCheck: "labeled" });
       }
-      sources.push({ name: "OddsPapi (polscy bukmacherzy)", fetchedAt: r.fetchedAt, ok: true, note: `${r.books.join(", ") || "no Polish books returned"} · ${r.matchedFixtures} games` });
+      sources.push(
+        r.notFetched && !r.offers.length
+          ? { name: "OddsPapi (polscy bukmacherzy)", fetchedAt: null, ok: false, note: "nie pobrano — kliknij „Pobierz kursy” na stronie Polskie kursy" }
+          : { name: "OddsPapi (polscy bukmacherzy)", fetchedAt: r.fetchedAt || null, ok: true, note: `${r.books.join(", ") || "brak kursów"} · ${r.matchedFixtures} meczów` },
+      );
       if (r.errors.length) warnings.push(`OddsPapi: część zapytań odrzucona — ${[...new Set(r.errors)].slice(0, 3).join(" · ")}`);
       if (r.foreignPlayers) warnings.push(`OddsPapi: ${r.foreignPlayers} player prices skipped — player not on either team's roster (bookmaker feed mix-up).`);
     } catch (e) {

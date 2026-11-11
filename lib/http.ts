@@ -96,6 +96,12 @@ async function doFetch<T>(url: string, key: string, opts: FetchOpts): Promise<Fe
   throw new DataUnavailableError(opts.source, lastErr instanceof Error ? lastErr.message : String(lastErr));
 }
 
+/** Cached body for a key without touching the network (null when never fetched). */
+export function readCache<T>(key: string): { data: T; fetchedAt: number } | null {
+  const row = getDb().prepare("SELECT body, fetched_at FROM http_cache WHERE key = ?").get(key) as { body: string; fetched_at: number } | undefined;
+  return row ? { data: JSON.parse(row.body) as T, fetchedAt: row.fetched_at } : null;
+}
+
 /** Run async tasks with bounded concurrency. */
 export async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, i: number) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length);
