@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 export const NAV = [
   { href: "/", label: "Pulpit" },
   { href: "/value-bets", label: "Propozycje zakładów" },
+  { href: "/kupony", label: "Kupony dnia" },
   { href: "/pl-odds", label: "Polskie kursy" },
   { href: "/games", label: "Mecze NBA" },
   { href: "/players", label: "Analiza zawodnika" },

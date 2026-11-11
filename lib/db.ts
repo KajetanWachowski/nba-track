@@ -108,6 +108,9 @@ export function getDb(): DatabaseSync {
   fs.mkdirSync(config.dataDir, { recursive: true });
   db = new DatabaseSync(path.join(config.dataDir, "nba-edge.db"));
   db.exec(SCHEMA);
+  // migracje dodające kolumny (idempotentne)
+  const cols = (db.prepare("PRAGMA table_info(backtest_rows)").all() as { name: string }[]).map((c) => c.name);
+  if (!cols.includes("open_under")) db.exec("ALTER TABLE backtest_rows ADD COLUMN open_under REAL");
   return db;
 }
 

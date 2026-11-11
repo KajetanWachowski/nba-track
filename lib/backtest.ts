@@ -287,13 +287,14 @@ export async function runBacktest(opts: { trainFrac?: number; minEv?: number; si
   if (opts.tune) {
     log("tuning on training dates only…");
     const grid: ModelParams[] = [];
-    for (const priorStrength of [150, 300])
-      for (const rateHalfLife of [15, 30]) grid.push({ ...DEFAULT_PARAMS, priorStrength, rateHalfLife });
+    for (const priorStrength of [75, 150, 300])
+      for (const rateHalfLife of [15, 22, 30])
+        for (const roleShrink of [1, 0.3]) grid.push({ ...DEFAULT_PARAMS, priorStrength, rateHalfLife, roleShrink });
     for (const p of grid) {
       const rows = (await generateRows(all, p, 1500, trainDays)).filter((r) => r.scope === "player" && r.y !== null);
       const ll = logLoss(rows.map((r) => r.rawProb), rows.map((r) => r.y as number));
       tuning.push({ params: p, trainLogLoss: ll });
-      log(`  prior=${p.priorStrength} hl=${p.rateHalfLife}: logloss ${ll.toFixed(4)} (n=${rows.length})`);
+      log(`  prior=${p.priorStrength} hl=${p.rateHalfLife} rola=${p.roleShrink ?? 1}: logloss ${ll.toFixed(4)} (n=${rows.length})`);
     }
     params = tuning.reduce((a, b) => (b.trainLogLoss < a.trainLogLoss ? b : a)).params;
     // stage 2: the minutes model — chosen by minutes error (RMSE) on training dates only
@@ -447,13 +448,13 @@ export async function runBacktest(opts: { trainFrac?: number; minEv?: number; si
   const runId = Number(
     db.prepare("INSERT INTO backtest_runs(created_at, model_version, params, summary) VALUES(?,?,?,?)").run(Date.now(), config.modelVersion, JSON.stringify(params), JSON.stringify(summary)).lastInsertRowid,
   );
-  const st = db.prepare(`INSERT INTO backtest_rows(run_id, game_id, date, subject_id, subject_name, market, line, side, open_price, close_price, raw_prob, market_prob, cal_prob, actual, won, fold)
-    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  const st = db.prepare(`INSERT INTO backtest_rows(run_id, game_id, date, subject_id, subject_name, market, line, side, open_price, close_price, raw_prob, market_prob, cal_prob, actual, won, fold, open_under)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
   tx(() => {
     for (const r of rows)
       if (r.y !== null)
         st.run(runId, r.gameId, r.date, r.subjectId, r.subjectName, r.market, r.line, r.scope === "player" || r.market === "total" ? "over" : "home",
-          r.openOver, r.closeOver, r.rawProb, r.marketProb, r.calProb ?? null, r.actual, r.y, r.fold);
+          r.openOver, r.closeOver, r.rawProb, r.marketProb, r.calProb ?? null, r.actual, r.y, r.fold, r.openUnder);
     db.prepare("DELETE FROM backtest_rows WHERE run_id < ?").run(runId - 4);
   });
   return summary;

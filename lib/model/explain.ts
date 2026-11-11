@@ -15,7 +15,7 @@ import type { PlayerProjection } from "./player";
 import { mean } from "./stats";
 
 export interface ExplainStep {
-  key: "base" | "form" | "minutes" | "opponent" | "oppMissing" | "pace" | "home" | "teammates" | "h2h" | "spread";
+  key: "base" | "form" | "prior" | "debias" | "minutes" | "opponent" | "oppMissing" | "pace" | "home" | "teammates" | "h2h" | "spread";
   label: string;
   text: string;
   delta: number; // w jednostkach statystyki (np. punktach); dla „base” — wartość startowa
@@ -78,12 +78,18 @@ export function explainProjection(args: {
   const sum = (rs: { [k: string]: number }[], k: string) => rs.reduce((s, r) => s + (Number(r[k]) || 0), 0);
   const totMin = sum(played as unknown as Record<string, number>[], "min");
 
+  const split = { recent: 0, prior: 0, debias: 0, ok: parts.every((k) => proj.stats[k].rateParts) };
   const step = { base: 0, form: 0, minutes: 0, opponent: 0, oppMissing: 0, pace: 0, home: 0, teammates: 0, h2h: 0 };
   for (const s of parts) {
     const st = proj.stats[s];
     const seasonAvg = n ? mean(played.map((r) => r[s])) : st.rate * seasonMin;
     step.base += seasonAvg;
     step.form += st.rate * seasonMin - seasonAvg;
+    if (st.rateParts) {
+      split.recent += st.rateParts.recent * seasonMin - seasonAvg;
+      split.prior += (st.rateParts.withPrior - st.rateParts.recent) * seasonMin;
+      split.debias += (st.rate - st.rateParts.withPrior) * seasonMin;
+    }
     step.minutes += st.rate * (proj.minutes.mean - seasonMin);
     let cur = st.rate * proj.minutes.mean;
     for (const k of ["opponent", "oppMissing", "pace", "home", "teammates", "h2h"] as const) {
@@ -108,13 +114,38 @@ export function explainProjection(args: {
   const l5Rate = rateOf(played.slice(-5) as unknown as { min: number; [k: string]: number }[]);
   const priorPlayed = (args.prior ?? []).filter((r) => r.min > 0);
   const priorRate = priorPlayed.length >= 10 ? rateOf(priorPlayed as unknown as { min: number; [k: string]: number }[]) : NaN;
-  const why: string[] = [];
-  if (Number.isFinite(priorRate) && Number.isFinite(seasonRate) && Math.abs(priorRate - seasonRate) / Math.max(1e-9, seasonRate) > 0.06)
-    why.push(`w poprzednim sezonie miał ${f1(priorRate * 36)} ${noun} na 36 minut, teraz ${f1(seasonRate * 36)} — przy ${n} meczach model nie przyjmuje w pełni nowego poziomu`);
-  if (Number.isFinite(l5Rate) && Number.isFinite(seasonRate) && n >= 8 && Math.abs(l5Rate - seasonRate) / Math.max(1e-9, seasonRate) > 0.08)
-    why.push(`ostatnie 5 meczów ${l5Rate > seasonRate ? "lepsze" : "słabsze"} niż średnia (${f1(l5Rate * 36)} vs ${f1(seasonRate * 36)} na 36 min), a nowsze mecze ważą więcej`);
-  if (!why.length) why.push(Math.abs(step.form) < 0.3 ? "forma zgodna ze średnią" : "model wygładza wyniki z małej liczby meczów");
-  steps.push({ key: "form", label: "Forma i poprzedni sezon", delta: step.form, text: `${why.join("; ")}.`.replace(/^./, (c) => c.toUpperCase()) });
+  const priorSrc = proj.stats[parts[0]].rateParts?.priorSource ?? "poprzedni sezon";
+  if (split.ok && n > 0) {
+    const l10 = played.slice(-10);
+    const l10Avg = l10.length ? l10.reduce((a, r) => a + parts.reduce((b, k) => b + r[k], 0), 0) / l10.length : NaN;
+    steps.push({
+      key: "form", label: "Forma (ostatnie mecze)", delta: split.recent,
+      text: Math.abs(split.recent) < 0.3
+        ? "Ostatnie mecze są na poziomie średniej sezonu."
+        : `Ostatnie mecze ${split.recent > 0 ? "lepsze" : "słabsze"} niż średnia: ${Number.isFinite(l5Rate) ? `${f1(l5Rate * 36)} vs ${f1(seasonRate * 36)} ${noun} na 36 min w 5 ostatnich` : ""}${Number.isFinite(l10Avg) ? `, średnio ${f1(l10Avg)} w 10 ostatnich` : ""}. Starsze mecze ważą stopniowo mniej.`,
+    });
+    steps.push({
+      key: "prior", label: priorSrc === "poprzedni sezon" ? "Poprzedni sezon" : "Średnia dla pozycji", delta: split.prior,
+      text: Math.abs(split.prior) < 0.3
+        ? `${priorSrc === "poprzedni sezon" ? "Poprzedni sezon" : "Średnia pozycji"} zgadza się z tym sezonem — brak korekty.`
+        : priorSrc === "poprzedni sezon" && Number.isFinite(priorRate)
+          ? `W poprzednim sezonie ${f1(priorRate * 36)} ${noun} na 36 min, teraz ${f1(seasonRate * 36)}. Przy ${n} meczach model ${split.prior < 0 ? "nie wierzy jeszcze w pełni w nowy, wyższy poziom" : "zakłada częściowy powrót do poziomu z poprzedniego sezonu"} — im więcej meczów, tym mniejszy wpływ poprzedniego sezonu.`
+          : `Mało meczów w tym sezonie (${n}), więc model ${split.prior < 0 ? "obniża" : "podnosi"} wynik w stronę typowego gracza na tej pozycji.`,
+    });
+    if (Math.abs(split.debias) >= 0.05)
+      steps.push({
+        key: "debias", label: "Korekta z backtestu", delta: split.debias,
+        text: `Na rozegranych meczach model systematycznie ${split.debias < 0 ? "zawyżał" : "zaniżał"} ten typ statystyki, więc wszystkie projekcje są ${split.debias < 0 ? "obniżane" : "podnoszone"} o stały procent (${f1(Math.abs(split.debias / Math.max(1e-9, step.base + split.recent + split.prior)) * 100)}%). Ta sama korekta dotyczy każdego zawodnika.`,
+      });
+  } else {
+    const why: string[] = [];
+    if (Number.isFinite(priorRate) && Number.isFinite(seasonRate) && Math.abs(priorRate - seasonRate) / Math.max(1e-9, seasonRate) > 0.06)
+      why.push(`w poprzednim sezonie miał ${f1(priorRate * 36)} ${noun} na 36 minut, teraz ${f1(seasonRate * 36)} — przy ${n} meczach model nie przyjmuje w pełni nowego poziomu`);
+    if (Number.isFinite(l5Rate) && Number.isFinite(seasonRate) && n >= 8 && Math.abs(l5Rate - seasonRate) / Math.max(1e-9, seasonRate) > 0.08)
+      why.push(`ostatnie 5 meczów ${l5Rate > seasonRate ? "lepsze" : "słabsze"} niż średnia (${f1(l5Rate * 36)} vs ${f1(seasonRate * 36)} na 36 min), a nowsze mecze ważą więcej`);
+    if (!why.length) why.push(Math.abs(step.form) < 0.3 ? "forma zgodna ze średnią" : "model wygładza wyniki z małej liczby meczów");
+    steps.push({ key: "form", label: "Forma i poprzedni sezon", delta: step.form, text: `${why.join("; ")}.`.replace(/^./, (c) => c.toUpperCase()) });
+  }
 
   const l5Min = n ? mean(played.slice(-5).map((r) => r.min)) : NaN;
   const minWhy: string[] = [];

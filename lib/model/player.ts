@@ -56,6 +56,8 @@ export interface FactorBreakdown {
 
 export interface StatProjection {
   rate: number; // posterior mean per-minute rate (before factors)
+  /** rozbicie stawki na minutę: same mecze sezonu ważone świeżością → z priorem (poprzedni sezon / pozycja) → po korekcie z backtestu */
+  rateParts?: { recent: number; withPrior: number; priorSource: "poprzedni sezon" | "średnia pozycji" };
   factors: FactorBreakdown;
   mean: number;
 }
@@ -100,6 +102,8 @@ export interface ModelParams {
   minutesAdj: number;
   /** multiplicative de-biasing of per-minute rates by stat, estimated on backtest training dates */
   rateAdj: Partial<Record<StatKey, number>>;
+  /** mnożnik siły priora z poprzedniego sezonu, gdy rola wyraźnie się zmieniła (minuty ±20%); 1 = wyłączone */
+  roleShrink?: number;
 }
 
 export const DEFAULT_PARAMS: ModelParams = {
@@ -171,6 +175,9 @@ export function projectPlayer(ctx: LeagueContext, athleteId: string, g: PlayerGa
     if (prior.length >= 10 && priorMinTotal >= 150) {
       r0 = sumBy(prior, (r) => r[s]) / priorMinTotal;
       K = P.priorStrength;
+      const priorMpg = priorMinTotal / prior.length;
+      const seasonMpg = n ? sumBy(rev, (r) => r.min) / n : priorMpg;
+      if (n >= 3 && Math.abs(seasonMpg / priorMpg - 1) > 0.2) K *= P.roleShrink ?? 1;
     } else {
       r0 = ctx.posRate[pos][s];
       K = P.posPriorStrength;
@@ -185,6 +192,7 @@ export function projectPlayer(ctx: LeagueContext, athleteId: string, g: PlayerGa
     posterior[s].b /= adj; // scales the mean; Gamma CV = 1/√a is unchanged
     stats[s] = {
       rate: posterior[s].a / posterior[s].b,
+      rateParts: { recent: M > 0 ? C / M : r0, withPrior: a / b, priorSource: K === P.posPriorStrength && !(prior.length >= 10 && priorMinTotal >= 150) ? "średnia pozycji" : "poprzedni sezon" },
       factors: { pace: 1, opponent: 1, home: 1, teammates: 1, h2h: 1, oppMissing: 1 },
       mean: 0,
     };
@@ -365,6 +373,8 @@ export function projectPlayer(ctx: LeagueContext, athleteId: string, g: PlayerGa
     const f = stats.fg3m.factors;
     f.opponent = attFactor * pctFactor;
     stats.fg3m.rate = rate3a * pct3;
+    // trójki liczone jako próby × skuteczność: korekta z backtestu jest już w stawce z priorem
+    if (stats.fg3m.rateParts) stats.fg3m.rateParts = { ...stats.fg3m.rateParts, recent: Mw > 0 ? C3m / Mw : stats.fg3m.rateParts.recent, withPrior: stats.fg3m.rate };
   }
 
   for (const s of BASE_STATS) {
