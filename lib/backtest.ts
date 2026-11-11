@@ -154,6 +154,7 @@ export async function generateRows(games: GameRow[], params: ModelParams, sims: 
         const proj = projectPlayer(ctx, athleteId, {
           day, teamId: row.team_id, oppId: home ? g.away_id : g.home_id, home, restDays: restDays(ctx, row.team_id, day),
           absences: abs[row.team_id] ?? [], priorSeason: await prior(athleteId), sims, params,
+          oppAbsences: abs[home ? g.away_id : g.home_id] ?? [],
           // closing spread as the expected margin (known before tip-off; same choice as live)
           gameMargin: gameLine?.spread_home !== null && gameLine?.spread_home !== undefined ? -gameLine.spread_home : undefined, marginSd: ctx.marginSd,
         });

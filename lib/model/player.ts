@@ -39,6 +39,8 @@ export interface PlayerGameContext {
   params?: ModelParams;
   /** projected final margin (any sign) and its SD from the game model — drives blowout risk */
   gameMargin?: number;
+  /** nieobecni zawodnicy rywala (raport kontuzji; w backteście — kto nie zagrał) */
+  oppAbsences?: TeammateAbsence[];
   marginSd?: number;
 }
 
@@ -48,6 +50,8 @@ export interface FactorBreakdown {
   home: number;
   teammates: number;
   h2h: number;
+  /** braki w obronie rywala (np. kontuzja obrońcy na tej pozycji → gra rezerwowy) */
+  oppMissing: number;
 }
 
 export interface StatProjection {
@@ -75,6 +79,10 @@ export interface PlayerProjection {
   threes: { attempts: number; pct: number; pctSeason: number | null; attFactor: number; pctFactor: number };
   /** probability the game is decided by ≥ threshold points, and the minutes multiplier if it is */
   blowout: { prob: number; factor: number; threshold: number };
+  /** prawdopodobny bezpośredni rywal: zawodnik rywala na tej samej pozycji z największą liczbą minut */
+  likelyDefender: { name: string; min: number; stl: number; blk: number; pf: number; games: number; pos: PosGroup } | null;
+  /** nieobecni w obronie rywala i zmierzony wpływ (mecze rywala bez nich) */
+  oppMissing: { name: string; status: string; min: number; samePos: boolean; nWithout: number; effect: number | null }[];
 }
 
 export interface ModelParams {
@@ -177,7 +185,7 @@ export function projectPlayer(ctx: LeagueContext, athleteId: string, g: PlayerGa
     posterior[s].b /= adj; // scales the mean; Gamma CV = 1/√a is unchanged
     stats[s] = {
       rate: posterior[s].a / posterior[s].b,
-      factors: { pace: 1, opponent: 1, home: 1, teammates: 1, h2h: 1 },
+      factors: { pace: 1, opponent: 1, home: 1, teammates: 1, h2h: 1, oppMissing: 1 },
       mean: 0,
     };
   }
@@ -275,6 +283,66 @@ export function projectPlayer(ctx: LeagueContext, athleteId: string, g: PlayerGa
     warnings.push("zawodnik raczej nie zagra (doubtful) — zakład może zostać anulowany");
   }
 
+  // ---------------- opponent: likely direct opponent and missing defenders ----------------
+  // Who guards whom is not public (NBA tracking is blocked), so the likely direct opponent is the
+  // opponent's highest-minute available player in the same position group. Missing opponent
+  // defenders are measured empirically: stats allowed to this position group in the opponent's
+  // games without that player vs all its games (shrunk toward no effect).
+  const oppGames = ctx.teamGames(g.oppId).map((r) => r.game_id);
+  const outOpp = new Map((g.oppAbsences ?? []).map((a) => [a.athleteId, a]));
+  const oppRoster = new Map<string, { name: string; pos: PosGroup; mins: number[]; stl: number; blk: number; pf: number; played: Set<string> }>();
+  for (const gid of oppGames.slice(-15)) {
+    for (const r of ctx.gamePlayers(gid)) {
+      if (r.team_id !== g.oppId) continue;
+      const e = oppRoster.get(r.athlete_id) ?? { name: r.name, pos: posGroup(r.pos), mins: [], stl: 0, blk: 0, pf: 0, played: new Set<string>() };
+      if (!r.dnp && r.min > 0) { e.mins.push(r.min); e.stl += r.stl; e.blk += r.blk; e.pf += r.pf; e.played.add(gid); }
+      oppRoster.set(r.athlete_id, e);
+    }
+  }
+  const candidates = [...oppRoster.entries()].filter(([id, e]) => e.pos === pos && e.mins.length >= 3 && (outOpp.get(id)?.pOut ?? 0) < 0.5);
+  const def = candidates.sort((a, b) => mean(b[1].mins) - mean(a[1].mins))[0];
+  const likelyDefender = def
+    ? { name: def[1].name, min: mean(def[1].mins), stl: def[1].stl / def[1].mins.length, blk: def[1].blk / def[1].mins.length, pf: def[1].pf / def[1].mins.length, games: def[1].mins.length, pos }
+    : null;
+  const oppMissing: PlayerProjection["oppMissing"] = [];
+  const allowedPerMin = (gids: Set<string> | null) => {
+    const acc = Object.fromEntries(BASE_STATS.map((s) => [s, 0])) as Record<StatKey, number>;
+    let mins = 0;
+    for (const gid of oppGames) {
+      if (gids && !gids.has(gid)) continue;
+      for (const r of ctx.gamePlayers(gid)) {
+        if (r.team_id === g.oppId || r.dnp || r.min <= 0 || posGroup(r.pos) !== pos) continue;
+        mins += r.min;
+        for (const s of BASE_STATS) acc[s] += r[s];
+      }
+    }
+    return { acc, mins };
+  };
+  const baseAllowed = allowedPerMin(null);
+  for (const [id, ab] of outOpp) {
+    const e = oppRoster.get(id);
+    if (!e || ab.pOut <= 0 || e.mins.length < 3 || mean(e.mins) < 20) continue;
+    const samePos = e.pos === pos;
+    const without = new Set(oppGames.filter((gid) => !e.played.has(gid)));
+    // already missing in 2 of the opponent's last 3 games → its season numbers already include it mostly
+    const last3 = oppGames.slice(-3);
+    const fresh = last3.filter((gid) => e.played.has(gid)).length >= Math.min(2, last3.length);
+    let effect: number | null = null;
+    if (fresh && without.size >= 2 && baseAllowed.mins > 0) {
+      const w = allowedPerMin(without);
+      if (w.mins > 0) {
+        const parts = BASE_STATS.filter((s) => baseAllowed.acc[s] > 0);
+        // one combined ratio (more stable than per stat): weighted by league scoring weights of the stats
+        const ratio = parts.reduce((t, s) => t + w.acc[s] / w.mins, 0) / parts.reduce((t, s) => t + baseAllowed.acc[s] / baseAllowed.mins, 0);
+        const shrunk = 1 + (ratio - 1) * (without.size / (without.size + 10)) * (samePos ? 1 : 0.4);
+        effect = clamp(1 + (shrunk - 1) * ab.pOut, 0.9, 1.15);
+        for (const s of BASE_STATS) stats[s].factors.oppMissing *= effect;
+      }
+    }
+    oppMissing.push({ name: ab.name, status: ab.status, min: mean(e.mins), samePos, nWithout: without.size, effect });
+  }
+  for (const s of BASE_STATS) stats[s].factors.oppMissing = clamp(stats[s].factors.oppMissing, 0.9, 1.15);
+
   // ---------------- head-to-head residual (very weak) ----------------
   const h2hRows = [
     ...rev.filter((r) => r.opp_id === g.oppId).map((r) => ({ r, cur: true })),
@@ -301,7 +369,7 @@ export function projectPlayer(ctx: LeagueContext, athleteId: string, g: PlayerGa
 
   for (const s of BASE_STATS) {
     const f = stats[s].factors;
-    stats[s].mean = projMin * stats[s].rate * f.pace * f.opponent * f.home * f.teammates * f.h2h;
+    stats[s].mean = projMin * stats[s].rate * f.pace * f.opponent * f.home * f.teammates * f.h2h * f.oppMissing;
   }
 
   // ---------------- blowout risk ----------------
@@ -325,12 +393,12 @@ export function projectPlayer(ctx: LeagueContext, athleteId: string, g: PlayerGa
   const mult = Object.fromEntries(
     BASE_STATS.map((s) => {
       const f = stats[s].factors;
-      return [s, f.pace * f.opponent * f.home * f.teammates * f.h2h];
+      return [s, f.pace * f.opponent * f.home * f.teammates * f.h2h * f.oppMissing];
     }),
   ) as Record<StatKey, number>;
   let k = 0;
   const f3 = stats.fg3m.factors;
-  const mult3a = f3.pace * attFactor * f3.home * f3.teammates;
+  const mult3a = f3.pace * attFactor * f3.home * f3.teammates * f3.oppMissing;
   for (let o = 0; o < OUTER; o++) {
     const rates = {} as Record<StatKey, number>;
     for (const s of BASE_STATS) rates[s] = gammaSample(rng, posterior[s].a, 1 / posterior[s].b) * mult[s];
@@ -363,6 +431,8 @@ export function projectPlayer(ctx: LeagueContext, athleteId: string, g: PlayerGa
     stats, sims, outer, outerDraws: OUTER, notes, warnings, teammateEffects,
     threes: { attempts: projMin * rate3a * mult3a, pct: pct3 * pctFactor, pctSeason: n && sumBy(rev, (r) => r.fg3a) ? sumBy(rev, (r) => r.fg3m) / sumBy(rev, (r) => r.fg3a) : null, attFactor, pctFactor },
     blowout: { prob: boProb, factor: boFactor, threshold: bo.threshold },
+    likelyDefender,
+    oppMissing,
   };
 }
 

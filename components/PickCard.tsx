@@ -4,15 +4,11 @@ import { useState } from "react";
 import type { Category, Severity } from "@/lib/assess";
 import type { BetEval } from "@/lib/engine";
 import { ago, dateTime, dec, num, pct, pp, signedPct, tipTime } from "@/lib/format";
+import { CATEGORY } from "@/lib/categories";
 import { ProjectionExplain } from "./ProjectionExplain";
 import { Term } from "./Term";
 
-export const CATEGORY: Record<Category, { label: string; cls: string; dot: string }> = {
-  najlepsze: { label: "Najlepsza propozycja", cls: "bg-pos text-black", dot: "bg-pos" },
-  dobre: { label: "Dobra propozycja", cls: "bg-pos-soft text-pos", dot: "bg-pos" },
-  obserwuj: { label: "Warta obserwacji", cls: "bg-warn-soft text-warn", dot: "bg-warn" },
-  odrzucone: { label: "Odrzucona przez model", cls: "bg-neg-soft text-neg", dot: "bg-neg" },
-};
+export { CATEGORY };
 
 const SEV: Record<Severity, { label: string; cls: string }> = {
   krytyczne: { label: "krytyczne", cls: "bg-neg text-black" },
@@ -119,6 +115,9 @@ export function PickCard({ b }: { b: BetEval }) {
           </div>
         )}
         <p className="mt-3 text-sm text-ink-2">{a.summary}</p>
+        <Link href={`/analiza/${encodeURIComponent(b.id)}`} className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-sm font-bold text-black hover:opacity-90">
+          Pełna analiza z wykresami →
+        </Link>
         {a.category !== "najlepsze" && a.categoryReasons.length > 0 && (
           <ul className="mt-2 space-y-0.5 text-xs text-ink-3">{a.categoryReasons.map((r) => <li key={r}>• {r}</li>)}</ul>
         )}

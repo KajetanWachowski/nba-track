@@ -12,7 +12,7 @@
 import { COMBOS, type PlayerMarket, type StatKey } from "./markets";
 import type { LeagueContext } from "./model/context";
 import type { Explanation } from "./model/explain";
-import type { PlayerProjection } from "./model/player";
+import { simValues, type PlayerProjection } from "./model/player";
 import { mean, median, normalInv, sd, slope } from "./model/stats";
 import type { SeasonLogGame } from "./providers/espn";
 import type { PlayerGameRow } from "./store";
@@ -65,6 +65,14 @@ export interface PlayerStatsBlock {
   homeAway: { home: { n: number; hits: number; avg: number }; away: { n: number; hits: number; avg: number } };
   /** model vs linia bukmachera vs najlepszy szacunek (łączony z wagą z backtestu) */
   estimate: { model: number; market: number | null; combined: number; modelWeight: number } | null;
+  /** najbardziej prawdopodobny obrońca z tej samej pozycji u rywala (wg minut) — przybliżenie, nie dane 1 na 1 */
+  likelyDefender?: PlayerProjection["likelyDefender"];
+  /** nieobecni gracze rywala i jak rywal bronił tej pozycji bez nich */
+  oppMissing?: PlayerProjection["oppMissing"];
+  /** wartość rynku na 36 minut: ostatnie 5 i sezon */
+  per36?: { l5: number | null; season: number | null };
+  /** rozkład wyników z symulacji modelu (przed kalibracją) */
+  hist?: { x: number; p: number }[];
 }
 
 export interface Assessment {
@@ -300,6 +308,13 @@ export function assessPlayer(x: AssessInput): Assessment {
     else if (t.minutes >= 1 && dir < 0) risk("istotne", `${t.name} nie zagra — zawodnik dostanie więcej minut (+${f1(t.minutes)} min).`);
   }
   if (!x.injuriesAvailable) risk("istotne", "Raport kontuzji jest niedostępny — nie wiadomo, kto zagra.");
+  for (const m of x.proj.oppMissing ?? []) {
+    if (m.effect === null || Math.abs(m.effect - 1) < 0.03) continue;
+    const more = m.effect > 1;
+    const t = `${x.oppAbbr} bez ${m.name} (${m.status}${m.samePos ? ", ta sama pozycja" : ""}): w ${m.nWithout} meczach bez niego rywale tej pozycji zdobywali ${more ? "więcej" : "mniej"} (${more ? "+" : "−"}${Math.abs((m.effect - 1) * 100).toFixed(0)}% na minutę).`;
+    if (more === dir > 0) pros.push(t);
+    else risk("drobne", t);
+  }
 
   // historia z tym rywalem i dom/wyjazd
   const vsOpp: PlayerStatsBlock["vsOpp"] = [
@@ -413,6 +428,13 @@ export function assessPlayer(x: AssessInput): Assessment {
     vsOpp,
     homeAway,
     estimate,
+    likelyDefender: x.proj.likelyDefender ?? null,
+    oppMissing: x.proj.oppMissing ?? [],
+    per36: (() => {
+      const r36 = (rs: PlayerGameRow[]) => { const m = sumOf(rs, (r) => r.min); return m >= 30 ? (36 * sumOf(rs, (r) => statOf(r, x.market))) / m : null; };
+      return { l5: r36(lastRows(5)), season: r36(rows) };
+    })(),
+    hist: x.proj.sims ? histogram(Array.from(simValues(x.proj, x.market))) : [],
   };
 
   return finish({ ...x, kind: "player" }, pros, risks, qScore, qf, stats);
@@ -536,4 +558,20 @@ function finish(
     stats,
     rankScore,
   };
+}
+
+/** histogram wyników z symulacji: słupki co 1 (lub szersze przy dużym zakresie) */
+export function histogram(v: number[]): { x: number; p: number }[] {
+  if (!v.length) return [];
+  const sorted = [...v].sort((a, b) => a - b);
+  const lo = sorted[Math.floor(sorted.length * 0.005)];
+  const hi = sorted[Math.ceil(sorted.length * 0.995) - 1];
+  const w = hi - lo > 45 ? 2 : 1;
+  const out = new Map<number, number>();
+  for (const x of v) {
+    const c = Math.min(hi, Math.max(lo, x));
+    const b = lo + Math.floor((c - lo) / w) * w;
+    out.set(b, (out.get(b) ?? 0) + 1);
+  }
+  return [...out.entries()].sort((a, b) => a[0] - b[0]).map(([x, n]) => ({ x, p: n / v.length }));
 }

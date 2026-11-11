@@ -158,6 +158,7 @@ export async function getPlayerAnalysis(athleteId: string): Promise<PlayerAnalys
       selfStatus: injuries.find((i) => i.athleteId === athleteId)?.status ?? null, sims: 10000,
       gameMargin: (() => { const gl = getGameLine(ng.id); return gl?.spread_home !== null && gl?.spread_home !== undefined ? (home ? -gl.spread_home : gl.spread_home) : undefined; })(),
       marginSd: gctx.marginSd,
+      oppAbsences: injuries.filter((i) => i.teamId === oppId).map((i) => ({ athleteId: i.athleteId, name: i.name, pOut: P_OUT[i.status] ?? 0.25, status: i.status })),
     });
     if (proj) {
       const markets: NonNullable<PlayerAnalysis["projection"]>["markets"] = {};

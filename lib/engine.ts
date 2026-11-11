@@ -351,6 +351,7 @@ async function runSlate(day: string, force: boolean): Promise<SlateAnalysis> {
       day, teamId, oppId, home, restDays: restDays(ctx, teamId, day), absences,
       selfStatus: injOf.get(athleteId)?.status ?? null, priorSeason: prior, sims: 8000, params,
       gameMargin: expectedMargin(g), marginSd: ctx.marginSd,
+      oppAbsences: (injByTeam.get(oppId) ?? []).map((i) => ({ athleteId: i.athleteId, name: i.name, pOut: P_OUT[i.status] ?? 0.25, status: i.status })),
     });
     if (proj) {
       subjectTeam.set(k, teamId);

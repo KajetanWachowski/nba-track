@@ -15,7 +15,7 @@ import type { PlayerProjection } from "./player";
 import { mean } from "./stats";
 
 export interface ExplainStep {
-  key: "base" | "form" | "minutes" | "opponent" | "pace" | "home" | "teammates" | "h2h" | "spread";
+  key: "base" | "form" | "minutes" | "opponent" | "oppMissing" | "pace" | "home" | "teammates" | "h2h" | "spread";
   label: string;
   text: string;
   delta: number; // w jednostkach statystyki (np. punktach); dla „base” — wartość startowa
@@ -78,7 +78,7 @@ export function explainProjection(args: {
   const sum = (rs: { [k: string]: number }[], k: string) => rs.reduce((s, r) => s + (Number(r[k]) || 0), 0);
   const totMin = sum(played as unknown as Record<string, number>[], "min");
 
-  const step = { base: 0, form: 0, minutes: 0, opponent: 0, pace: 0, home: 0, teammates: 0, h2h: 0 };
+  const step = { base: 0, form: 0, minutes: 0, opponent: 0, oppMissing: 0, pace: 0, home: 0, teammates: 0, h2h: 0 };
   for (const s of parts) {
     const st = proj.stats[s];
     const seasonAvg = n ? mean(played.map((r) => r[s])) : st.rate * seasonMin;
@@ -86,13 +86,13 @@ export function explainProjection(args: {
     step.form += st.rate * seasonMin - seasonAvg;
     step.minutes += st.rate * (proj.minutes.mean - seasonMin);
     let cur = st.rate * proj.minutes.mean;
-    for (const k of ["opponent", "pace", "home", "teammates", "h2h"] as const) {
-      const f = st.factors[k];
+    for (const k of ["opponent", "oppMissing", "pace", "home", "teammates", "h2h"] as const) {
+      const f = st.factors[k] ?? 1;
       step[k] += cur * (f - 1);
       cur *= f;
     }
   }
-  const modelMean = step.base + step.form + step.minutes + step.opponent + step.pace + step.home + step.teammates + step.h2h;
+  const modelMean = step.base + step.form + step.minutes + step.opponent + step.oppMissing + step.pace + step.home + step.teammates + step.h2h;
   const spread = args.simMean - modelMean;
 
   // --- teksty ---
@@ -152,6 +152,14 @@ export function explainProjection(args: {
     text: opp ? `${oppAbbr} to ${ord(dr.rank)} najlepsza obrona ligi przeciw ${POS_PL[proj.pos]} w ${noun}${dr.rank <= 10 ? " — trudny rywal" : dr.rank >= dr.of - 9 ? " — łatwy rywal" : " — przeciętny rywal"}.` : "Brak danych o rywalu — przyjęto przeciętną obronę.",
   });
 
+  const missing = (proj.oppMissing ?? []).filter((m) => m.effect !== null);
+  if (missing.length || Math.abs(step.oppMissing) >= 0.05)
+    steps.push({
+      key: "oppMissing", label: `Braki w obronie ${oppAbbr}`, delta: step.oppMissing,
+      text: missing.length
+        ? missing.map((m) => `${m.name} (${m.status}, ${f1(m.min)} min${m.samePos ? ", ta sama pozycja" : ""}) — w ${m.nWithout} meczach bez niego rywale tej pozycji ${m.effect! >= 1 ? "zdobywali więcej" : "zdobywali mniej"} (${m.effect! >= 1 ? "+" : "−"}${Math.abs((m.effect! - 1) * 100).toFixed(0)}%)`).join("; ") + "."
+        : "Zmiana obrony rywala po nieobecnościach.",
+    });
   const paceF = proj.stats[parts[0]].factors.pace;
   if (opp) {
     const paceRank = [...ctx.teams.values()].filter((t) => t.pace > opp.pace).length + 1;
