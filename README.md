@@ -86,7 +86,7 @@ Podatek 12% od stawki można włączyć w Ustawieniach (domyślnie wyłączony).
 
 **Oszczędzanie limitu OddsPapi:** strony nigdy same nie pytają OddsPapi — używają zapisanych kursów.
 Zapytania idą tylko po kliknięciu **„Pobierz kursy”** na stronie „Polskie kursy” (koszt ≈ 1 + liczba meczów;
-strona pokazuje koszt i dzisiejsze zużycie). Aplikacja ma własny dzienny limit `ODDSPAPI_DAILY_LIMIT`
+strona pokazuje koszt i dzisiejsze zużycie). Opcjonalnie aplikacja ma własny dzienny limit `ODDSPAPI_DAILY_LIMIT` (domyślnie 0 = wyłączony)
 (domyślnie 30), nie ponawia odrzuconych zapytań, a błędną nazwę bukmachera zapamiętuje na 24 h, żeby
 nie płacić za nią ponownie. Automatyczne odświeżanie włączysz przez `ODDSPAPI_AUTO_REFRESH_MIN` (np. 60).
 

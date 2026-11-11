@@ -91,7 +91,7 @@ export default async function PolishOdds({ searchParams }: { searchParams: Promi
             <div>
               <div className="font-semibold">Kursy Superbet / Betclic z OddsPapi</div>
               <div className="text-ink-3">
-                Ostatnie pobranie: {u.lastRefresh ? ago(u.lastRefresh) : "jeszcze nie pobrano"} · dziś zużyto <b className="text-ink">{u.count}</b> z {u.limit} zapytań ·
+                Ostatnie pobranie: {u.lastRefresh ? ago(u.lastRefresh) : "jeszcze nie pobrano"} · dziś zużyto <b className="text-ink">{u.count}</b>{u.limit > 0 ? ` z ${u.limit}` : ""} zapytań ·
                 pobranie teraz kosztuje ok. <b className="text-ink">{cost}</b>. Strony nie pobierają kursów same — oszczędzają limit.
               </div>
             </div>

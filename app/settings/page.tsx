@@ -52,7 +52,7 @@ export default async function Settings() {
           <div className="label mb-1 mt-5">OddsPapi (automatyczne kursy polskie)</div>
           {oddsPapiEnabled() && (
             <p className="mb-2 text-sm text-ink-2">
-              Zapytania dziś: <b>{papiUsage.count}</b> / {papiUsage.limit} (limit aplikacji, <code>ODDSPAPI_DAILY_LIMIT</code>) · ostatnie pobranie {ago(papiUsage.lastRefresh)} ·
+              Zapytania dziś: <b>{papiUsage.count}</b>{papiUsage.limit > 0 ? ` / ${papiUsage.limit} (limit aplikacji, ODDSPAPI_DAILY_LIMIT)` : " (bez limitu aplikacji)"} · ostatnie pobranie {ago(papiUsage.lastRefresh)} ·
               tryb: {config.oddsPapiAutoRefreshMin > 0 ? `automatycznie co ${config.oddsPapiAutoRefreshMin} min` : "tylko po kliknięciu „Pobierz kursy”"}. Limit planu sprawdzisz na koncie oddspapi.io.
             </p>
           )}

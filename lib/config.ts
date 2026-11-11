@@ -16,7 +16,8 @@ export const config = {
    * OddsPapi request budget. Requests are only made when the user clicks "Pobierz kursy"
    * (or every N minutes if ODDSPAPI_AUTO_REFRESH_MIN > 0); page refreshes reuse cached odds.
    */
-  oddsPapiDailyLimit: Number(process.env.ODDSPAPI_DAILY_LIMIT || 30),
+  /** 0 (domyślnie) = bez limitu aplikacji; > 0 = maksymalna liczba zapytań dziennie */
+  oddsPapiDailyLimit: Math.max(0, Number(process.env.ODDSPAPI_DAILY_LIMIT || 0)),
   oddsPapiAutoRefreshMin: Number(process.env.ODDSPAPI_AUTO_REFRESH_MIN || 0),
   /** Cache TTLs in seconds. Finished games are immutable and cached forever. */
   ttl: {

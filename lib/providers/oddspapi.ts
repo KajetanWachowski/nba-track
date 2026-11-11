@@ -52,7 +52,8 @@ const today = () => new Date().toISOString().slice(0, 10);
 export function getUsage(): Usage & { limit: number; remaining: number } {
   const u = getMeta<Usage>("oddspapi:usage");
   const cur: Usage = u && u.day === today() ? u : { day: today(), count: 0, lastRefresh: u?.lastRefresh ?? null };
-  return { ...cur, limit: config.oddsPapiDailyLimit, remaining: Math.max(0, config.oddsPapiDailyLimit - cur.count) };
+  const limit = config.oddsPapiDailyLimit; // 0 = no app-side limit
+  return { ...cur, limit, remaining: limit > 0 ? Math.max(0, limit - cur.count) : Infinity };
 }
 
 function countRequest() {

@@ -25,12 +25,12 @@ export async function POST(req: Request) {
     const used = u.count - before;
     return NextResponse.json({
       message: r.fatal
-        ? `${r.fatal} ${[...new Set(r.errors)].slice(0, 2).join(" · ")} Zużyto ${used} zapyt., dziś ${u.count}/${u.limit}.`
-        : `Pobrano kursy (${r.matchedFixtures} meczów, ${r.books.join(", ") || "bez kursów"}). Zużyto ${used} zapyt., dziś ${u.count}/${u.limit}.${r.errors.length ? ` Uwagi: ${[...new Set(r.errors)].slice(0, 3).join(" · ")}` : ""}`,
+        ? `${r.fatal} ${[...new Set(r.errors)].slice(0, 2).join(" · ")} Zużyto ${used} zapyt., dziś ${u.count}${u.limit > 0 ? `/${u.limit}` : ""}.`
+        : `Pobrano kursy (${r.matchedFixtures} meczów, ${r.books.join(", ") || "bez kursów"}). Zużyto ${used} zapyt., dziś ${u.count}${u.limit > 0 ? `/${u.limit}` : ""}.${r.errors.length ? ` Uwagi: ${[...new Set(r.errors)].slice(0, 3).join(" · ")}` : ""}`,
       used, usage: u,
     });
   } catch (e) {
     const u = getUsage();
-    return NextResponse.json({ error: `${(e as Error).message} (dziś ${u.count}/${u.limit} zapyt.)` }, { status: 502 });
+    return NextResponse.json({ error: `${(e as Error).message} (dziś ${u.count}${u.limit > 0 ? `/${u.limit}` : ""} zapyt.)` }, { status: 502 });
   }
 }
