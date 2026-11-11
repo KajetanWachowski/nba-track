@@ -6,6 +6,7 @@ import { latestBacktest, type BetStats } from "@/lib/backtest";
 import { ago, dayLabel, dec, num, pct, shortDate, signedPct } from "@/lib/format";
 import { MARKET_LABEL, type Market } from "@/lib/markets";
 import { listPredictions } from "@/lib/tracking";
+import { getDb } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -67,6 +68,21 @@ export default function History() {
             że kursy ruszały się przeciw symulowanym typom — to sygnał, że przewaga nie jest potwierdzona.
           </p>
 
+          {(() => {
+            // overy vs undery na meczach testowych: czy kursy wyceniają je uczciwie?
+            const r = getDb().prepare("SELECT COUNT(*) n, AVG(won) obs, AVG(market_prob) mkt, AVG(cal_prob) cal FROM backtest_rows WHERE run_id = (SELECT MAX(run_id) FROM backtest_rows) AND fold = 'test' AND market NOT IN ('ml','spread','total')").get() as { n: number; obs: number; mkt: number; cal: number };
+            if (!r?.n) return null;
+            return (
+              <Card title="Overy czy undery?" className="mb-6">
+                <p className="text-sm text-ink-2">
+                  Na {r.n.toLocaleString("pl-PL")} liniach z meczów testowych „powyżej” wchodziło w <b>{pct(r.obs)}</b> przypadków, choć kursy bez marży zakładały{" "}
+                  <b>{pct(r.mkt)}</b>. Model po kalibracji przewidywał {pct(r.cal)}. Bukmacherzy ustawiają linie „powyżej” nieco za wysoko (większość graczy woli overy),
+                  dlatego model częściej wskazuje „poniżej”. To wynik z danych, a nie ustawienie modelu — overy pojawiają się, gdy dane naprawdę je wspierają.
+                  Filtr „Strona” na stronie Propozycje pokaże same overy.
+                </p>
+              </Card>
+            );
+          })()}
           {bt.byMarket && (
             <Card title="Model vs rynek według typu zakładu (podstawa rekomendacji)" className="mb-6">
               <div className="overflow-x-auto">

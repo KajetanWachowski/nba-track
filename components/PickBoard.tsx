@@ -34,6 +34,7 @@ export function PickBoard({ bets, totals, compact = false, showRejected = true, 
   const [minProb, setMinProb] = useState(0.5);
   const [minEv, setMinEv] = useState(-0.05);
   const [minOdds, setMinOdds] = useState(1.5);
+  const [side, setSide] = useState<"all" | "over" | "under">("all");
   const [market, setMarket] = useState("all");
   const [team, setTeam] = useState("all");
   const [q, setQ] = useState("");
@@ -51,9 +52,10 @@ export function PickBoard({ bets, totals, compact = false, showRejected = true, 
       .filter((b) => market === "all" || b.market === market)
       .filter((b) => team === "all" || b.teamAbbr === team || b.oppAbbr === team)
       .filter((b) => !plOnly || b.playable)
+      .filter((b) => side === "all" || b.side === side)
       .filter((b) => !ql || b.subjectName.toLowerCase().includes(ql) || b.gameLabel.toLowerCase().includes(ql))
       .sort((a, b) => (sort === "prob" ? b.modelProb - a.modelProb : sort === "ev" ? b.ev - a.ev : b.assessment.rankScore - a.assessment.rankScore));
-  }, [bets, minProb, minEv, minOdds, market, team, plOnly, q, sort]);
+  }, [bets, minProb, minEv, minOdds, side, market, team, plOnly, q, sort]);
   const by = (c: Category) => filtered.filter((b) => b.assessment.category === c);
   const recommended = by("najlepsze").length + by("dobre").length;
   const sel = "rounded-lg border border-line bg-surface-2 px-2 py-1.5 text-sm text-ink";
@@ -69,6 +71,11 @@ export function PickBoard({ bets, totals, compact = false, showRejected = true, 
             <select value={market} onChange={(e) => setMarket(e.target.value)} className={sel}>
               <option value="all">Wszystkie</option>
               {markets.map((m) => <option key={m} value={m}>{MARKET_LABEL[m]}</option>)}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1"><span className="label">Strona</span>
+            <select value={side} onChange={(e) => setSide(e.target.value as typeof side)} className={sel}>
+              <option value="all">Wszystkie</option><option value="over">Powyżej (over)</option><option value="under">Poniżej (under)</option>
             </select>
           </label>
           <label className="flex flex-col gap-1"><span className="label">Drużyna</span>
