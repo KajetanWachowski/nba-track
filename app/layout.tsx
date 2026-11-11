@@ -16,7 +16,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
-      <body className="min-h-screen">
+      {/* suppressHydrationWarning: browser extensions (e.g. Grammarly) add attributes to <body> before React loads */}
+      <body className="min-h-screen" suppressHydrationWarning>
         <div className="mx-auto flex max-w-[1500px] flex-col lg:flex-row">
           <aside className="sticky top-0 z-20 border-b border-line bg-bg/95 px-4 py-3 backdrop-blur lg:h-screen lg:w-60 lg:shrink-0 lg:border-b-0 lg:border-r lg:py-6">
             <div className="mb-3 flex items-center justify-between lg:mb-8">
