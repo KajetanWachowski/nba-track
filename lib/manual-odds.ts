@@ -17,7 +17,7 @@ export interface ManualRow {
 
 export function upsertManual(r: Omit<ManualRow, "created_at">) {
   const ok = (d: number | null) => d === null || (Number.isFinite(d) && d > 1 && d < 1000);
-  if (!ok(r.over_dec) || !ok(r.under_dec) || (r.over_dec === null && r.under_dec === null)) throw new Error("Odds must be decimal prices above 1.00");
+  if (!ok(r.over_dec) || !ok(r.under_dec) || (r.over_dec === null && r.under_dec === null)) throw new Error("Kurs musi być liczbą dziesiętną większą niż 1.00");
   getDb()
     .prepare(`INSERT INTO manual_odds(game_id, market, subject_id, line, book, over_dec, under_dec, created_at) VALUES(?,?,?,?,?,?,?,?)
       ON CONFLICT(game_id, market, subject_id, line, book) DO UPDATE SET over_dec=excluded.over_dec, under_dec=excluded.under_dec, created_at=excluded.created_at`)

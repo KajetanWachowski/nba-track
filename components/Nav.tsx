@@ -3,22 +3,22 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 export const NAV = [
-  { href: "/", label: "Dashboard" },
-  { href: "/games", label: "NBA Games" },
-  { href: "/players", label: "Player Analysis" },
-  { href: "/matchups", label: "Matchup Analysis" },
-  { href: "/value-bets", label: "Value Bets" },
-  { href: "/odds", label: "Odds Comparison" },
+  { href: "/", label: "Pulpit" },
+  { href: "/value-bets", label: "Propozycje zakładów" },
   { href: "/pl-odds", label: "Polskie kursy" },
-  { href: "/history", label: "Historical Performance" },
-  { href: "/settings", label: "Settings" },
+  { href: "/games", label: "Mecze NBA" },
+  { href: "/players", label: "Analiza zawodnika" },
+  { href: "/matchups", label: "Analiza rywala" },
+  { href: "/odds", label: "Porównanie kursów" },
+  { href: "/history", label: "Historia wyników" },
+  { href: "/settings", label: "Ustawienia" },
 ];
 
 export function Nav() {
   const path = usePathname();
   const active = (h: string) => (h === "/" ? path === "/" : path.startsWith(h));
   return (
-    <nav aria-label="Main" className="flex gap-1 overflow-x-auto lg:flex-col lg:overflow-visible">
+    <nav aria-label="Menu główne" className="flex gap-1 overflow-x-auto lg:flex-col lg:overflow-visible">
       {NAV.map((n) => (
         <Link
           key={n.href}
@@ -47,7 +47,7 @@ export function ThemeToggle() {
         try { localStorage.setItem("theme", next); } catch { /* private mode */ }
       }}
     >
-      Theme
+      Motyw
     </button>
   );
 }

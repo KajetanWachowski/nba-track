@@ -1,26 +1,33 @@
 import { AutoRefresh } from "@/components/AutoRefresh";
-import { BetTable } from "@/components/BetTable";
+import { PickBoard } from "@/components/PickBoard";
+import { Term } from "@/components/Term";
 import { Notice, PageHeader, SourceBar } from "@/components/ui";
 import { dayLabel } from "@/lib/format";
-import { loadSlate } from "@/lib/page-data";
+import { boardBets, loadSlate } from "@/lib/page-data";
 
 export const dynamic = "force-dynamic";
 
 export default async function ValueBets() {
   const { a, error } = await loadSlate();
-  if (!a) return <Notice tone="neg">Could not load slate: {error}</Notice>;
+  if (!a) return <Notice tone="neg">Nie udało się wczytać meczów: {error}</Notice>;
+  const { list, totals } = boardBets(a.bets);
   return (
     <>
       <AutoRefresh seconds={300} />
-      <PageHeader eyebrow={`Value bet finder · ${dayLabel(a.day)}`} title="Value" accent="Bets" />
+      <PageHeader eyebrow={`Wyszukiwarka zakładów · ${dayLabel(a.day)}`} title="Propozycje" accent="zakładów" />
       <SourceBar sources={a.sources} />
       {a.warnings.map((w) => <Notice key={w}>{w}</Notice>)}
-      <p className="mb-4 max-w-3xl text-sm text-ink-2">
-        Every price on today&apos;s slate — player points, rebounds, assists, PRA and other combos, 3PT made, steals, blocks, double/triple doubles,
-        moneyline, spread and totals — is scored by the model. A selection is a <b>value bet</b> only when the calibrated probability times the
-        odds exceeds 1 (EV &gt; 0) and confidence is at least Medium. High probability alone is never enough: the price must pay more than the risk.
-      </p>
-      <BetTable bets={a.bets} initial={{ minEv: 0.02, valueOnly: true }} />
+      <div className="mb-5 max-w-3xl space-y-2 text-sm text-ink-2">
+        <p>
+          Każdy zakład oceniamy w trzech niezależnych wymiarach: <Term k="prob">prawdopodobieństwo</Term>, <Term k="quality">jakość danych</Term> i{" "}
+          <Term k="value">opłacalność</Term>. Najpierw liczy się solidność prognozy, dopiero potem kurs — samo dodatnie <Term k="ev">EV</Term> nie wystarcza.
+        </p>
+        <p>
+          Kursy: najpierw <b>Superbet</b>, potem najlepszy inny polski bukmacher. Kursy amerykańskie służą wyłącznie do porównania. Przy każdym zakładzie
+          znajdziesz też sekcję <b>„Co przemawia przeciwko”</b> — słaba ostatnia forma liczy się nawet przy dobrej średniej sezonowej.
+        </p>
+      </div>
+      <PickBoard bets={list} totals={totals} />
     </>
   );
 }

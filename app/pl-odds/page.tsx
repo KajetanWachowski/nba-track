@@ -128,7 +128,7 @@ export default async function PolishOdds({ searchParams }: { searchParams: Promi
         })}
       </div>
       <div className="mb-4 flex flex-wrap items-center gap-1 text-xs">
-        <Link href={qs({ type: undefined })} className={`rounded-md px-2 py-1 ${type === "main" ? "bg-ink text-bg" : "bg-surface text-ink-3"}`}>Linie Over/Under + mecz</Link>
+        <Link href={qs({ type: undefined })} className={`rounded-md px-2 py-1 ${type === "main" ? "bg-ink text-bg" : "bg-surface text-ink-3"}`}>Linie powyżej/poniżej + mecz</Link>
         <Link href={qs({ type: "all" })} className={`mr-3 rounded-md px-2 py-1 ${type === "all" ? "bg-ink text-bg" : "bg-surface text-ink-3"}`}>+ drabinki „N+” i tak/nie</Link>
         <Link href={qs({ market: undefined })} className={`rounded-md px-2 py-1 ${!sp.market ? "bg-ink text-bg" : "bg-surface text-ink-3"}`}>Wszystkie rynki</Link>
         {marketsHere.map((m) => (

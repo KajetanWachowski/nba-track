@@ -24,6 +24,8 @@ export interface TeamRating {
   /** Per-possession defensive factors vs league for stats allowed to each position group. */
   posDefense: Record<PosGroup, Record<StatKey, { factor: number; raw: number; n: number }>>;
   allowedPerGame: Record<StatKey, number>;
+  /** opponents' shooting against this team (shrunk toward league) */
+  shooting: { fgPctAllowed: number; fg3PctAllowed: number; fg3aFactor: number; fg3PctFactor: number; n: number };
   lastGameDay: string | null;
   gameDays: string[];
 }
@@ -50,6 +52,13 @@ export interface LeagueContext {
   dispersion: Record<StatKey, { kappa: number; phi: number }>;
   /** variance of a shared per-game performance multiplier (correlates a player's stats within a game) */
   sharedTau2: number;
+  /** three-point model inputs: league 3P% and 3PA per minute by position, 3PA dispersion */
+  threes: { lgPct: number; posPct: Record<PosGroup, number>; posRate3a: Record<PosGroup, number>; disp3a: { kappa: number; phi: number } };
+  /**
+   * Blowout effect on minutes, measured on finished games: ratio of a player's minutes in games
+   * decided by ≥ threshold points to his usual minutes (starters lose minutes, bench gains).
+   */
+  blowout: { threshold: number; pLeague: number; starter: { factor: number; n: number }; bench: { factor: number; n: number } };
   playerGames: (athleteId: string) => PlayerGameRow[]; // chronological, before day
   teamGames: (teamId: string) => TeamGameRow[];
   gamePlayers: (gameId: string) => PlayerGameRow[];
@@ -157,6 +166,10 @@ export function buildContext(day: string): LeagueContext {
     for (const s of BASE_STATS) posRate[g][s] = lgPos[g].min ? lgPos[g].s[s] / lgPos[g].min : 0;
   }
 
+  const tSum = (f: (x: TeamGameRow) => number) => tg.reduce((acc, x) => acc + f(x), 0);
+  const lgFgPct = tSum((x) => x.fga) ? tSum((x) => x.fgm) / tSum((x) => x.fga) : 0.47;
+  const lgFg3Pct = tSum((x) => x.fg3a) ? tSum((x) => x.fg3m) / tSum((x) => x.fg3a) : 0.36;
+  const lgFg3aPerPoss = tSum((x) => x.poss) ? tSum((x) => x.fg3a) / tSum((x) => x.poss) : 0.37;
   const teams = new Map<string, TeamRating>();
   for (const [t, r] of raw) {
     const n = r.n;
@@ -186,9 +199,26 @@ export function buildContext(day: string): LeagueContext {
       }
     }
     for (const s of BASE_STATS) allowed[s] /= Math.max(1, r.rows.length);
+    // opponents' shooting against this team
+    let fgm = 0, fga = 0, f3m = 0, f3a = 0, poss = 0;
+    for (const row of r.rows) {
+      const opp = oppRow.get(`${row.game_id}|${t}`);
+      if (!opp) continue;
+      fgm += opp.fgm; fga += opp.fga; f3m += opp.fg3m; f3a += opp.fg3a; poss += row.poss;
+    }
+    const shrinkPct = (made: number, att: number, lg: number, k: number) => (made + k * lg) / (att + k);
+    const fg3aPerPoss = poss ? f3a / poss : lgFg3aPerPoss;
+    const fg3PctAllowed = shrinkPct(f3m, f3a, lgFg3Pct, 300);
+    const shooting = {
+      fgPctAllowed: shrinkPct(fgm, fga, lgFgPct, 400),
+      fg3PctAllowed,
+      fg3aFactor: shrinkRatio(fg3aPerPoss / lgFg3aPerPoss, n, 10),
+      fg3PctFactor: fg3PctAllowed / lgFg3Pct,
+      n,
+    };
     const days = byTeam.get(t)!.map((x) => x.day);
     teams.set(t, {
-      games: n, pace, ortg, drtg, rawOrtg: r.o, rawDrtg: r.d, posDefense, allowedPerGame: allowed,
+      games: n, pace, ortg, drtg, rawOrtg: r.o, rawDrtg: r.d, posDefense, allowedPerGame: allowed, shooting,
       lastGameDay: days.length ? days[days.length - 1] : null, gameDays: days,
     });
   }
@@ -313,8 +343,67 @@ export function buildContext(day: string): LeagueContext {
   const sharedTau2 = cden > 0 ? Math.min(0.1, Math.max(0, cnum / cden)) : 0;
   for (const s of BASE_STATS) dispersion[s].phi = Math.max(0.002, dispersion[s].phi - sharedTau2);
 
+  // ---------- three-point attempts: league rates by position + dispersion of 3PA ----------
+  const posAgg: Record<PosGroup, { min: number; a: number; m: number }> = { G: { min: 0, a: 0, m: 0 }, F: { min: 0, a: 0, m: 0 }, C: { min: 0, a: 0, m: 0 } };
+  const pl3 = new Map<string, { min: number; a: number }>();
+  for (const r of pg) {
+    if (r.dnp || r.min <= 0) continue;
+    const g3 = posAgg[posGroup(r.pos)];
+    g3.min += r.min; g3.a += r.fg3a; g3.m += r.fg3m;
+    const x = pl3.get(r.athlete_id) ?? { min: 0, a: 0 };
+    x.min += r.min; x.a += r.fg3a;
+    pl3.set(r.athlete_id, x);
+  }
+  const posPct = {} as Record<PosGroup, number>;
+  const posRate3a = {} as Record<PosGroup, number>;
+  for (const g3 of ["G", "F", "C"] as PosGroup[]) {
+    posPct[g3] = (posAgg[g3].m + 100 * lgFg3Pct) / (posAgg[g3].a + 100);
+    posRate3a[g3] = posAgg[g3].min ? posAgg[g3].a / posAgg[g3].min : 0.1;
+  }
+  let a3 = 0, ab3 = 0, b3 = 0, ay3 = 0, by3 = 0;
+  for (const r of pg) {
+    if (r.dnp || r.min < 10) continue;
+    const x = pl3.get(r.athlete_id)!;
+    if (x.min < 150) continue;
+    const mLoo = x.min - r.min;
+    const mu = ((x.a - r.fg3a) / mLoo) * r.min;
+    const A = mu * (1 + r.min / mLoo), B = mu * mu, y = (r.fg3a - mu) ** 2;
+    a3 += A * A; ab3 += A * B; b3 += B * B; ay3 += A * y; by3 += B * y;
+  }
+  const det3 = a3 * b3 - ab3 * ab3;
+  let k3 = det3 > 0 ? (ay3 * b3 - by3 * ab3) / det3 : 1;
+  let f3 = det3 > 0 ? (a3 * by3 - ab3 * ay3) / det3 : 0.05;
+  if (!(k3 >= 1)) { k3 = 1; f3 = b3 > 0 ? (by3 - ab3) / b3 : 0.05; }
+  const threes = { lgPct: lgFg3Pct, posPct, posRate3a, disp3a: { kappa: Math.min(3, k3), phi: Math.min(1, Math.max(0.002, f3 - sharedTau2)) } };
+
+  // ---------- blowout effect on minutes ----------
+  const BLOWOUT = 20;
+  const marginOf = new Map<string, number>();
+  for (const [gid, rows] of byGameT) if (rows.length === 2) marginOf.set(gid, Math.abs(rows[0].pts - rows[1].pts));
+  const gp = new Map<string, number>();
+  for (const r of pg) if (!r.dnp && r.min > 0) gp.set(r.athlete_id, (gp.get(r.athlete_id) ?? 0) + 1);
+  const avgMin = new Map<string, number>();
+  for (const [id, x] of seasonRate) avgMin.set(id, x.min / Math.max(1, gp.get(id) ?? 1));
+  const bo = { starter: { num: 0, den: 0, n: 0 }, bench: { num: 0, den: 0, n: 0 } };
+  for (const r of pg) {
+    if (r.dnp || r.min <= 0) continue;
+    const m = marginOf.get(r.game_id);
+    const avg = avgMin.get(r.athlete_id);
+    if (m === undefined || m < BLOWOUT || !avg) continue;
+    const grp = avg >= 28 ? bo.starter : avg >= 10 && avg <= 20 ? bo.bench : null;
+    if (!grp) continue;
+    grp.num += r.min; grp.den += avg; grp.n++;
+  }
+  const blowGames = [...marginOf.values()];
+  const blowout = {
+    threshold: BLOWOUT,
+    pLeague: blowGames.length ? (blowGames.filter((m) => m >= BLOWOUT).length + 0.15 * 50) / (blowGames.length + 50) : 0.15,
+    starter: { factor: bo.starter.den ? shrinkRatio(bo.starter.num / bo.starter.den, bo.starter.n, 60) : 1, n: bo.starter.n },
+    bench: { factor: bo.bench.den ? shrinkRatio(bo.bench.num / bo.bench.den, bo.bench.n, 60) : 1, n: bo.bench.n },
+  };
+
   const ctx: LeagueContext = {
-    day, games: gameIds.size, lgPace, lgOrtg, homeCourt, marginSd, totalSd, teams, posRate, homeFactor, b2bMinutes, dispersion, sharedTau2,
+    day, games: gameIds.size, lgPace, lgOrtg, homeCourt, marginSd, totalSd, teams, posRate, homeFactor, b2bMinutes, dispersion, sharedTau2, threes, blowout,
     playerGames: (id) => (snap.byAthlete.get(id) ?? []).filter((r) => r.day < day),
     teamGames: (id) => (snap.byTeam.get(id) ?? []).filter((r) => r.day < day),
     gamePlayers: (gid) => snap.byGame.get(gid) ?? [],

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Term } from "@/components/Term";
 import { Card, InjuryBadge, PageHeader, TeamLogo } from "@/components/ui";
 import { getLeagueDefense, type TeamDefense } from "@/lib/analysis";
 import { num, shortDate, signedPct } from "@/lib/format";
@@ -7,7 +8,7 @@ import { fetchInjuries } from "@/lib/providers/espn";
 
 export const dynamic = "force-dynamic";
 
-const POS = [["G", "Guards"], ["F", "Forwards"], ["C", "Centers"]] as const;
+const POS = [["G", "Obrońcy"], ["F", "Skrzydłowi"], ["C", "Środkowi"]] as const;
 
 function cellStyle(f: number) {
   const d = Math.max(-0.25, Math.min(0.25, f - 1)) / 0.25; // −1 … 1
@@ -38,22 +39,22 @@ export default async function Matchups({ searchParams }: { searchParams: Promise
 
   return (
     <>
-      <PageHeader eyebrow="Opponent defense, pace & positional splits" title="Matchup" accent="Analysis" />
+      <PageHeader eyebrow="Obrona, tempo i statystyki tracone przez rywali" title="Analiza" accent="rywala" />
       {sel && (
         <div className={`mb-6 grid gap-4 ${vs ? "lg:grid-cols-2" : ""}`}>
           {[sel, vs].filter(Boolean).map((t) => <TeamPanel key={t!.team.id} t={t!} league={league} injuries={injuries.filter((i) => i.teamId === t!.team.id)} injErr={injErr} />)}
         </div>
       )}
-      <Card title="League defense table — click a column to rank, a team for its profile">
+      <Card title="Obrona drużyn ligi — kliknij kolumnę, aby posortować, lub drużynę, aby zobaczyć jej profil">
         <div className="overflow-x-auto">
           <table className="num w-full min-w-[900px] whitespace-nowrap text-sm">
             <thead>
               <tr className="label text-left">
-                <th className="py-2">Team</th>
-                <th><Link href="?sort=drtg">Def rtg</Link></th>
-                <th><Link href="?sort=net">Net</Link></th>
-                <th><Link href="?sort=pace">Pace</Link></th>
-                {BASE_STATS.map((s) => <th key={s}><Link href={`?sort=${s}`}>{MARKET_LABEL[s]} allowed</Link></th>)}
+                <th className="py-2">Drużyna</th>
+                <th><Link href="?sort=drtg"><Term k="drtg">Obrona</Term></Link></th>
+                <th><Link href="?sort=net">Bilans pkt</Link></th>
+                <th><Link href="?sort=pace"><Term k="pace">Tempo</Term></Link></th>
+                {BASE_STATS.map((s) => <th key={s}><Link href={`?sort=${s}`}>{MARKET_LABEL[s]} traconych</Link></th>)}
               </tr>
             </thead>
             <tbody>
@@ -69,7 +70,7 @@ export default async function Matchups({ searchParams }: { searchParams: Promise
             </tbody>
           </table>
         </div>
-        <p className="mt-2 text-xs text-ink-3">Ratings are per 100 possessions, opponent-adjusted, recency-weighted and shrunk toward league average ({num(league.lgOrtg)}) in proportion to games played. “Allowed” rank 1 = concedes the most.</p>
+        <p className="mt-2 text-xs text-ink-3">Oceny na 100 posiadań, z korektą na siłę rywali i większą wagą ostatnich meczów, wygładzone w stronę średniej ligi ({num(league.lgOrtg)}) przy małej liczbie meczów. Miejsce 1 w kolumnach „traconych” = drużyna traci najwięcej.</p>
       </Card>
     </>
   );
@@ -80,40 +81,40 @@ function TeamPanel({ t, league, injuries, injErr }: { t: TeamDefense; league: { 
   return (
     <Card title={<span className="flex items-center gap-2"><TeamLogo src={t.team.logo} abbr={t.team.abbr} size={20} />{t.team.name} · {t.games} games</span>}>
       <div className="num mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Big k="Record" v={`${t.record.w}–${t.record.l}`} sub={t.record.streak ? `streak ${t.record.streak}` : ""} />
-        <Big k="Defensive rating" v={num(t.drtg)} sub={`#${t.ranks.drtg} of 30`} />
-        <Big k="Pace" v={num(t.pace)} sub={`${signedPct(t.pace / league.lgPace - 1)} vs league`} />
-        <Big k="Rebounds allowed" v={num(reb.perGame)} sub={`#${reb.rank} most`} />
+        <Big k="Bilans" v={`${t.record.w}–${t.record.l}`} sub={t.record.streak ? `seria ${t.record.streak.replace("W", "Z").replace("L", "P")}` : ""} />
+        <Big k="Obrona (DRtg)" v={num(t.drtg)} sub={`#${t.ranks.drtg} z 30`} />
+        <Big k="Tempo" v={num(t.pace)} sub={`${signedPct(t.pace / league.lgPace - 1)} vs liga`} />
+        <Big k="Tracone zbiórki" v={num(reb.perGame)} sub={`#${reb.rank} najwięcej`} />
       </div>
-      <div className="label mb-1">Results in order</div>
+      <div className="label mb-1">Ostatnie wyniki (od najstarszego)</div>
       <div className="mb-4 flex flex-wrap gap-1">
         {t.recent.map((g) => (
-          <span key={g.gameId} title={`${shortDate(g.date)} ${g.home ? "vs" : "@"} opp: ${g.pts}-${g.oppPts}`}
+          <span key={g.gameId} title={`${shortDate(g.date)} ${g.home ? "u siebie" : "na wyjeździe"}: ${g.pts}:${g.oppPts}`}
             className={`num flex h-9 w-9 items-center justify-center rounded-md text-sm font-black ${g.won ? "bg-pos text-black" : "bg-neg-soft text-neg"}`}>
-            {g.won ? "W" : "L"}
+            {g.won ? "Z" : "P"}
           </span>
         ))}
       </div>
-      <div className="label mb-1">Allowed vs league, per possession, by position</div>
+      <div className="label mb-1">Statystyki tracone względem średniej ligi, na posiadanie, wg pozycji</div>
       <div className="overflow-x-auto">
         <table className="num w-full text-xs">
-          <thead><tr className="text-left text-ink-3"><th className="py-1"></th>{BASE_STATS.map((s) => <th key={s} className="px-1">{s.toUpperCase()}</th>)}</tr></thead>
+          <thead><tr className="text-left text-ink-3"><th className="py-1"></th>{BASE_STATS.map((s) => <th key={s} className="px-1">{MARKET_LABEL[s]}</th>)}</tr></thead>
           <tbody>
             {POS.map(([p, label]) => (
               <tr key={p}>
                 <td className="py-1 pr-2 font-semibold">{label}</td>
                 {BASE_STATS.map((s) => {
                   const f = t.posDefense[p][s].factor;
-                  return <td key={s} className="px-0.5 py-0.5"><span className="block rounded px-1 py-1 text-center" style={cellStyle(f)} title={`${label} ${s}: ${signedPct(f - 1)} (n=${t.posDefense[p][s].n} games, shrunk)`}>{signedPct(f - 1, 0)}</span></td>;
+                  return <td key={s} className="px-0.5 py-0.5"><span className="block rounded px-1 py-1 text-center" style={cellStyle(f)} title={`${label} · ${MARKET_LABEL[s]}: ${signedPct(f - 1)} (${t.posDefense[p][s].n} meczów, wygładzone)`}>{signedPct(f - 1, 0)}</span></td>;
                 })}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <p className="mt-1 text-[11px] text-ink-3">Green = concedes more than average (favourable for overs); red = suppresses. Values include shrinkage toward 0 for small samples.</p>
-      <div className="label mb-1 mt-4">Injuries / absences</div>
-      {injErr ? <p className="text-sm text-neg">Injury report unavailable.</p> : injuries.length === 0 ? <p className="text-sm text-ink-3">None reported.</p> : (
+      <p className="mt-1 text-[11px] text-ink-3">Zielony = rywal traci więcej niż średnio (sprzyja zakładom „powyżej”); czerwony = ogranicza. Przy małych próbkach wartości są wygładzone w stronę zera.</p>
+      <div className="label mb-1 mt-4">Kontuzje i nieobecności</div>
+      {injErr ? <p className="text-sm text-neg">Raport kontuzji niedostępny.</p> : injuries.length === 0 ? <p className="text-sm text-ink-3">Brak zgłoszeń.</p> : (
         <ul className="space-y-1 text-sm">
           {injuries.map((i) => <li key={i.athleteId} className="flex gap-2"><InjuryBadge status={i.status} /><Link href={`/players/${i.athleteId}`} className="font-semibold hover:text-accent">{i.name}</Link><span className="truncate text-ink-3">{i.detail}</span></li>)}
         </ul>

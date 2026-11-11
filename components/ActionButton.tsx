@@ -19,7 +19,7 @@ export function ActionButton({ endpoint, label, body, note }: { endpoint: string
             const r = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}) });
             const j = await r.json();
             if (!r.ok) throw new Error(j.error ?? r.statusText);
-            setMsg(j.message ?? "Done");
+            setMsg(j.message ?? "Gotowe");
             setState("done");
             router.refresh();
           } catch (e) {
@@ -29,7 +29,7 @@ export function ActionButton({ endpoint, label, body, note }: { endpoint: string
         }}
         className="rounded-lg bg-accent px-4 py-2 text-sm font-bold text-black disabled:opacity-50"
       >
-        {state === "busy" ? "Working…" : label}
+        {state === "busy" ? "Pracuję…" : label}
       </button>
       {note && state === "idle" && <span className="text-xs text-ink-3">{note}</span>}
       {msg && <span className={`text-xs ${state === "error" ? "text-neg" : "text-ink-2"}`}>{msg}</span>}

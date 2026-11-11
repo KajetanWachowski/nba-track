@@ -14,39 +14,40 @@ export default async function Games({ searchParams }: { searchParams: Promise<{ 
   return (
     <>
       <AutoRefresh seconds={180} />
-      <PageHeader eyebrow={dayLabel(day)} title="NBA" accent="Games">
+      <PageHeader eyebrow={`${dayLabel(day)} · godziny w czasie polskim`} title="Mecze" accent="NBA">
         <div className="flex gap-2 text-sm">
-          <Link className="rounded-lg border border-line px-3 py-1.5" href={`/games?day=${addDays(day, -1)}`}>← Prev</Link>
-          <Link className="rounded-lg border border-line px-3 py-1.5" href="/games">Today</Link>
-          <Link className="rounded-lg border border-line px-3 py-1.5" href={`/games?day=${addDays(day, 1)}`}>Next →</Link>
+          <Link className="rounded-lg border border-line px-3 py-1.5" href={`/games?day=${addDays(day, -1)}`}>← Poprzedni dzień</Link>
+          <Link className="rounded-lg border border-line px-3 py-1.5" href="/games">Dziś</Link>
+          <Link className="rounded-lg border border-line px-3 py-1.5" href={`/games?day=${addDays(day, 1)}`}>Następny →</Link>
         </div>
       </PageHeader>
-      {!a ? <Notice tone="neg">Could not load games: {error}</Notice> : (
+      {!a ? <Notice tone="neg">Nie udało się wczytać meczów: {error}</Notice> : (
         <>
           <SourceBar sources={a.sources} />
-          {a.games.length === 0 ? <Empty title="No regular-season games on this date" /> : (
+          {a.games.length === 0 ? <Empty title="Brak meczów sezonu regularnego w tym dniu" /> : (
             <div className="grid gap-4 md:grid-cols-2">
               {a.games.map((g) => {
                 const p = g.projection;
                 const line = (m: string, side: string) => a.bets.find((b) => b.gameId === g.id && b.market === m && b.side === side);
-                const props = a.bets.filter((b) => b.gameId === g.id && b.kind === "player").length;
-                const val = a.bets.filter((b) => b.gameId === g.id && b.isValue).length;
-                const inj = a.injuries.filter((i) => (i.teamId === g.home_id || i.teamId === g.away_id) && i.status === "OUT").length;
+                const n = a.bets.filter((b) => b.gameId === g.id && b.kind === "player").length;
+                const rec = a.bets.filter((b) => b.gameId === g.id && (b.assessment.category === "najlepsze" || b.assessment.category === "dobre")).length;
+                const out = a.injuries.filter((i) => (i.teamId === g.home_id || i.teamId === g.away_id) && i.status === "OUT").length;
+                const status = g.state === "pre" ? tipTime(g.date) : g.state === "post" ? "Koniec" : "Trwa";
                 return (
                   <Link key={g.id} href={`/games/${g.id}`} className="rounded-2xl border border-line bg-surface p-4 hover:border-ink-3">
                     <div className="flex items-center justify-between text-xs text-ink-3">
-                      <span>{g.state === "pre" ? tipTime(g.date) : g.status.replace("STATUS_", "")}</span>
-                      <span>{props} props · {val} value · {inj} out</span>
+                      <span>{status}</span>
+                      <span>{n} zakładów · {rec} polecanych · {out} nieobecnych</span>
                     </div>
                     <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-                      <TeamSide t={g.away} score={g.away_score} pts={p?.awayPts} />
+                      <Side t={g.away} score={g.away_score} pts={p?.awayPts} />
                       <span className="text-ink-3">@</span>
-                      <TeamSide t={g.home} score={g.home_score} pts={p?.homePts} right />
+                      <Side t={g.home} score={g.home_score} pts={p?.homePts} right />
                     </div>
                     <div className="num mt-4 grid grid-cols-3 gap-2 text-center text-xs">
-                      <Mini k="Moneyline" book={`${dec(line("ml", "away")?.price)} / ${dec(line("ml", "home")?.price)}`} model={p ? `${g.home?.abbr} ${pct(p.homeWinProb, 0)}` : "—"} />
-                      <Mini k="Spread" book={line("spread", "home") ? `${g.home?.abbr} ${line("spread", "home")!.line! > 0 ? "+" : ""}${line("spread", "home")!.line}` : "—"} model={p ? `${g.home?.abbr} ${p.margin > 0 ? "-" : "+"}${num(Math.abs(p.margin))}` : "—"} />
-                      <Mini k="Total" book={line("total", "over") ? `${line("total", "over")!.line}` : "—"} model={p ? num(p.total) : "—"} />
+                      <Mini k="Zwycięzca" book={`${dec(line("ml", "away")?.price)} / ${dec(line("ml", "home")?.price)}`} model={p ? `${g.home?.abbr} ${pct(p.homeWinProb, 0)}` : "—"} />
+                      <Mini k="Handicap" book={line("spread", "home") ? `${g.home?.abbr} ${line("spread", "home")!.line! > 0 ? "+" : ""}${line("spread", "home")!.line}` : "—"} model={p ? `${g.home?.abbr} ${p.margin > 0 ? "-" : "+"}${num(Math.abs(p.margin))}` : "—"} />
+                      <Mini k="Suma pkt" book={line("total", "over") ? `${line("total", "over")!.line}` : "—"} model={p ? num(p.total) : "—"} />
                     </div>
                   </Link>
                 );
@@ -59,13 +60,13 @@ export default async function Games({ searchParams }: { searchParams: Promise<{ 
   );
 }
 
-function TeamSide({ t, score, pts, right }: { t?: { abbr: string; logo: string; short_name: string } ; score: number | null; pts?: number; right?: boolean }) {
+function Side({ t, score, pts, right }: { t?: { abbr: string; logo: string }; score: number | null; pts?: number; right?: boolean }) {
   return (
     <div className={`flex items-center gap-3 ${right ? "flex-row-reverse text-right" : ""}`}>
       <TeamLogo src={t?.logo} abbr={t?.abbr} size={40} />
       <div>
         <div className="text-lg font-black">{t?.abbr}</div>
-        <div className="num text-xs text-ink-3">{score !== null ? `${score}` : pts ? `proj ${num(pts)}` : ""}</div>
+        <div className="num text-xs text-ink-3">{score !== null ? `${score}` : pts ? `prognoza ${num(pts)}` : ""}</div>
       </div>
     </div>
   );

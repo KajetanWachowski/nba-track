@@ -52,14 +52,17 @@ export function Badge({ children, tone = "neutral" }: { children: ReactNode; ton
   return <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${cls}`}>{children}</span>;
 }
 
-export function ConfidenceBadge({ c }: { c: "High" | "Medium" | "Low" }) {
-  const icon = c === "High" ? "●●●" : c === "Medium" ? "●●○" : "●○○";
-  return <Badge tone={c === "High" ? "pos" : c === "Medium" ? "warn" : "neg"}><span aria-hidden className="text-[8px] tracking-tighter">{icon}</span>{c}</Badge>;
-}
+export const INJURY_PL: Record<string, string> = {
+  OUT: "Nie zagra",
+  DOUBTFUL: "Raczej nie zagra",
+  QUESTIONABLE: "Niepewny",
+  PROBABLE: "Raczej zagra",
+  "DAY-TO-DAY": "Z dnia na dzień",
+};
 
 export function InjuryBadge({ status }: { status: string }) {
   const tone = status === "OUT" ? "neg" : status === "DOUBTFUL" || status === "QUESTIONABLE" ? "warn" : "neutral";
-  return <Badge tone={tone}>{status}</Badge>;
+  return <span title={status}><Badge tone={tone}>{INJURY_PL[status] ?? status}</Badge></span>;
 }
 
 export function SourceBar({ sources }: { sources: { name: string; fetchedAt: number | null; ok: boolean; note?: string }[] }) {
@@ -68,7 +71,7 @@ export function SourceBar({ sources }: { sources: { name: string; fetchedAt: num
       {sources.map((s) => (
         <span key={s.name} className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1 text-ink-2" title={s.note}>
           <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${s.ok ? "bg-pos" : s.fetchedAt ? "bg-warn" : "bg-ink-3"}`} />
-          {s.name}: {s.ok ? `updated ${ago(s.fetchedAt)}` : s.note ?? (s.fetchedAt ? `stale (${ago(s.fetchedAt)})` : "unavailable")}
+          {s.name}: {s.ok ? `aktualizacja ${ago(s.fetchedAt)}` : s.note ?? (s.fetchedAt ? `nieaktualne (${ago(s.fetchedAt)})` : "niedostępne")}
         </span>
       ))}
     </div>

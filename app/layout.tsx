@@ -5,14 +5,14 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "NBA Edge",
-  description: "NBA analytics: player projections, matchup analysis and expected-value betting intelligence.",
+  description: "Analiza NBA: projekcje zawodników, analiza rywali i ocena zakładów z priorytetem dla polskich bukmacherów.",
 };
 
 const themeScript = `try{var t=localStorage.getItem("theme");if(t)document.documentElement.dataset.theme=t}catch(e){}`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="pl" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
@@ -28,7 +28,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </div>
             <Nav />
             <p className="mt-8 hidden text-[11px] leading-relaxed text-ink-3 lg:block">
-              Probabilities are statistical estimates with uncertainty, not guarantees. Bet responsibly.
+              Prawdopodobieństwa to statystyczne szacunki obarczone niepewnością, a nie gwarancje. Graj odpowiedzialnie — hazard może uzależniać (pomoc: 801 889 880).
             </p>
           </aside>
           <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-8">{children}</main>

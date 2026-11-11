@@ -5,18 +5,18 @@ import { dec, num, pct, signedPct, shortDate } from "@/lib/format";
 import { LineBarChart } from "./LineChart";
 
 const MARKETS: { key: string; label: string; parts: string[] }[] = [
-  { key: "pts", label: "Points", parts: ["pts"] },
-  { key: "reb", label: "Rebounds", parts: ["reb"] },
-  { key: "ast", label: "Assists", parts: ["ast"] },
+  { key: "pts", label: "Punkty", parts: ["pts"] },
+  { key: "reb", label: "Zbiórki", parts: ["reb"] },
+  { key: "ast", label: "Asysty", parts: ["ast"] },
   { key: "pra", label: "PRA", parts: ["pts", "reb", "ast"] },
-  { key: "pr", label: "Pts+Reb", parts: ["pts", "reb"] },
-  { key: "pa", label: "Pts+Ast", parts: ["pts", "ast"] },
-  { key: "ra", label: "Reb+Ast", parts: ["reb", "ast"] },
-  { key: "fg3m", label: "3PT Made", parts: ["fg3m"] },
-  { key: "stl", label: "Steals", parts: ["stl"] },
-  { key: "blk", label: "Blocks", parts: ["blk"] },
-  { key: "tov", label: "Turnovers", parts: ["tov"] },
-  { key: "stocks", label: "Stl+Blk", parts: ["stl", "blk"] },
+  { key: "pr", label: "Pkt+Zb", parts: ["pts", "reb"] },
+  { key: "pa", label: "Pkt+As", parts: ["pts", "ast"] },
+  { key: "ra", label: "Zb+As", parts: ["reb", "ast"] },
+  { key: "fg3m", label: "Trójki", parts: ["fg3m"] },
+  { key: "stl", label: "Przechwyty", parts: ["stl"] },
+  { key: "blk", label: "Bloki", parts: ["blk"] },
+  { key: "tov", label: "Straty", parts: ["tov"] },
+  { key: "stocks", label: "Przech+Bloki", parts: ["stl", "blk"] },
 ];
 
 interface Cal { a: number; b: number; c: number; fittedAt: number | null }
@@ -99,18 +99,18 @@ export function PlayerLab({ a, initialMarket, initialLine, cal }: { a: PlayerAna
         <section className="rounded-2xl border border-line bg-surface p-4">
           <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
             <div>
-              <div className="label">Line</div>
+              <div className="label">Linia</div>
               <div className="flex items-center gap-2">
-                <button type="button" className="h-8 w-8 rounded-lg border border-line text-lg" onClick={() => setLine(Math.max(0.5, line - 1))} aria-label="Lower line">−</button>
+                <button type="button" className="h-8 w-8 rounded-lg border border-line text-lg" onClick={() => setLine(Math.max(0.5, line - 1))} aria-label="Obniż linię">−</button>
                 <input type="number" step={0.5} value={line} onChange={(e) => setLine(+e.target.value)} className="num w-24 rounded-lg border border-line bg-surface-2 px-2 py-1 text-center text-2xl font-black" />
-                <button type="button" className="h-8 w-8 rounded-lg border border-line text-lg" onClick={() => setLine(line + 1)} aria-label="Raise line">+</button>
-                {book && <span className="text-xs text-ink-3">book line {book.line}{book.openLine !== null && book.openLine !== book.line ? ` (opened ${book.openLine})` : ""}</span>}
+                <button type="button" className="h-8 w-8 rounded-lg border border-line text-lg" onClick={() => setLine(line + 1)} aria-label="Podnieś linię">+</button>
+                {book && <span className="text-xs text-ink-3">linia DraftKings {book.line}{book.openLine !== null && book.openLine !== book.line ? ` (otwarcie ${book.openLine})` : ""}</span>}
               </div>
             </div>
             <div className="flex gap-1 rounded-lg border border-line p-1 text-sm">
               {[5, 10, 20, 0].map((w) => (
                 <button key={w} type="button" onClick={() => setWin(w)} className={`rounded-md px-2.5 py-1 font-semibold ${w === win ? "bg-surface-2 text-ink" : "text-ink-3"}`}>
-                  {w === 0 ? "Season" : `L${w}`}
+                  {w === 0 ? "Sezon" : `${w} meczów`}
                 </button>
               ))}
             </div>
@@ -123,66 +123,66 @@ export function PlayerLab({ a, initialMarket, initialLine, cal }: { a: PlayerAna
                 value: vals[i],
                 label: a.teams[g.opp_id]?.abbr ?? "",
                 logo: a.teams[g.opp_id]?.logo,
-                tooltip: [`${g.home ? "vs" : "@"} ${a.teams[g.opp_id]?.abbr ?? ""} · ${shortDate(g.date)}`, `${m.label}: ${vals[i]} (${vals[i] > line ? "over" : "under"} ${line})`, `${g.min} min${g.usg !== null ? ` · USG ${num(g.usg)}%` : ""}`],
+                tooltip: [`${g.home ? "vs" : "@"} ${a.teams[g.opp_id]?.abbr ?? ""} · ${shortDate(g.date)}`, `${m.label}: ${vals[i]} (${vals[i] > line ? "powyżej" : "poniżej"} ${line})`, `${g.min} min${g.usg !== null ? ` · USG ${num(g.usg)}%` : ""}`],
               }))}
             />
           ) : (
-            <p className="py-10 text-center text-sm text-ink-3">No games played this season yet.</p>
+            <p className="py-10 text-center text-sm text-ink-3">Brak rozegranych meczów w tym sezonie.</p>
           )}
           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
-            <Tile label={`Hit rate (${win === 0 ? "season" : `L${win}`})`} value={stats.n ? `${stats.hits}/${stats.n}` : "—"} sub={stats.n ? pct(stats.hits / stats.n, 0) : ""} tone={stats.n && stats.hits / stats.n >= 0.5 ? "pos" : "neg"} />
-            <Tile label="Average" value={num(stats.avg)} sub={`σ ${num(stats.sd)}`} />
-            <Tile label="Median" value={num(stats.med)} />
-            <Tile label="Trend / game" value={`${stats.slope >= 0 ? "+" : ""}${num(stats.slope, 2)}`} tone={stats.slope > 0.15 ? "pos" : stats.slope < -0.15 ? "neg" : undefined} sub="OLS slope" />
-            <Tile label="Season avg" value={num(all.length ? all.reduce((s, v) => s + v, 0) / all.length : NaN)} sub={`${all.length} games`} />
+            <Tile label={`Hit rate (${win === 0 ? "sezon" : `${win} meczów`})`} value={stats.n ? `${stats.hits}/${stats.n}` : "—"} sub={stats.n ? pct(stats.hits / stats.n, 0) : ""} tone={stats.n && stats.hits / stats.n >= 0.5 ? "pos" : "neg"} />
+            <Tile label="Średnia" value={num(stats.avg)} sub={`σ ${num(stats.sd)}`} />
+            <Tile label="Mediana" value={num(stats.med)} />
+            <Tile label="Trend na mecz" value={`${stats.slope >= 0 ? "+" : ""}${num(stats.slope, 2)}`} tone={stats.slope > 0.15 ? "pos" : stats.slope < -0.15 ? "neg" : undefined} sub="regresja liniowa" />
+            <Tile label="Średnia sezonu" value={num(all.length ? all.reduce((s, v) => s + v, 0) / all.length : NaN)} sub={`${all.length} meczów`} />
           </div>
         </section>
 
         <aside className="space-y-4">
           <section className="rounded-2xl border border-line bg-surface p-4">
-            <div className="label">Next game projection</div>
+            <div className="label">Projekcja na następny mecz</div>
             {proj && a.next ? (
               <>
                 <div className="num mt-1 text-5xl font-black">{num(proj.mean)}</div>
-                <div className="text-sm text-ink-3">median {num(proj.median, 0)} · 80% range {num(proj.p10, 0)}–{num(proj.p90, 0)}</div>
+                <div className="text-sm text-ink-3">mediana {num(proj.median, 0)} · 80% wyników: {num(proj.p10, 0)}–{num(proj.p90, 0)}</div>
                 <div className="mt-4 grid grid-cols-2 gap-3">
-                  <Tile label={`P(over ${line})`} value={pct(calOver)} sub={`raw model ${pct(pOver)}`} tone={calOver !== null && calOver >= 0.5 ? "pos" : undefined} />
-                  <Tile label={`P(under ${line})`} value={pct(calOver === null ? null : 1 - calOver)} />
+                  <Tile label={`Szansa: powyżej ${line}`} value={pct(calOver)} sub={`surowy model ${pct(pOver)}`} tone={calOver !== null && calOver >= 0.5 ? "pos" : undefined} />
+                  <Tile label={`Szansa: poniżej ${line}`} value={pct(calOver === null ? null : 1 - calOver)} />
                 </div>
                 {bookAtLine ? (
                   <div className="mt-4 space-y-1 text-sm">
-                    <div className="label">DraftKings at {line}</div>
-                    <PriceRow side="Over" price={bookAtLine.over} fair={mkt?.[0]} ev={evOver} />
-                    <PriceRow side="Under" price={bookAtLine.under} fair={mkt?.[1]} ev={evUnder} />
+                    <div className="label">DraftKings (USA, tylko orientacyjnie) — linia {line}</div>
+                    <PriceRow side="Powyżej" price={bookAtLine.over} fair={mkt?.[0]} ev={evOver} />
+                    <PriceRow side="Poniżej" price={bookAtLine.under} fair={mkt?.[1]} ev={evUnder} />
                   </div>
                 ) : (
-                  <p className="mt-4 text-xs text-ink-3">No sportsbook price at this exact line{book ? ` (book line ${book.line})` : " for this market"} — EV not computed.</p>
+                  <p className="mt-4 text-xs text-ink-3">Brak kursu na dokładnie tę linię{book ? ` (linia DraftKings: ${book.line})` : " w tym rynku"} — EV niepoliczone. Kursy polskich bukmacherów znajdziesz w „Propozycjach zakładów” i „Polskich kursach”.</p>
                 )}
-                {!cal.fittedAt && <p className="mt-3 text-xs text-warn">Uncalibrated: run a backtest to fit calibration.</p>}
+                {!cal.fittedAt && <p className="mt-3 text-xs text-warn">Model nieskalibrowany — uruchom backtest w „Historii wyników”.</p>}
               </>
             ) : (
-              <p className="mt-2 text-sm text-ink-3">{a.next ? "Not enough data to project this player." : "No upcoming game found in the next 7 days."}</p>
+              <p className="mt-2 text-sm text-ink-3">{a.next ? "Za mało danych, by przygotować projekcję." : "Brak meczu w ciągu najbliższych 7 dni."}</p>
             )}
           </section>
           {a.projection && (
             <section className="rounded-2xl border border-line bg-surface p-4 text-sm">
-              <div className="label mb-2">Model inputs ({m.label.toLowerCase()})</div>
-              <Factor k="Projected minutes" v={`${num(a.projection.minutes.mean)} ± ${num(a.projection.minutes.sd)}`} />
+              <div className="label mb-2">Dane wejściowe modelu ({m.label.toLowerCase()})</div>
+              <Factor k="Projekcja minut" v={`${num(a.projection.minutes.mean)} ± ${num(a.projection.minutes.sd)}`} />
               {m.parts.map((p) => {
                 const f = a.projection!.factors[p as keyof typeof a.projection.factors];
                 return (
                   <div key={p} className="mt-2 border-t border-line pt-2">
                     <div className="text-xs font-semibold uppercase text-ink-3">{p}</div>
-                    <Factor k="Opponent (per poss.)" v={signedPct(f.opponent - 1)} />
-                    <Factor k="Pace" v={signedPct(f.pace - 1)} />
-                    <Factor k="Home/away" v={signedPct(f.home - 1)} />
-                    <Factor k="Teammate absences" v={signedPct(f.teammates - 1)} />
-                    <Factor k="Head-to-head (shrunk)" v={signedPct(f.h2h - 1)} />
+                    <Factor k="Obrona rywala (na posiadanie)" v={signedPct(f.opponent - 1)} />
+                    <Factor k="Tempo" v={signedPct(f.pace - 1)} />
+                    <Factor k="Dom / wyjazd" v={signedPct(f.home - 1)} />
+                    <Factor k="Nieobecności kolegów" v={signedPct(f.teammates - 1)} />
+                    <Factor k="Mecze z tym rywalem (mocno ściągnięte)" v={signedPct(f.h2h - 1)} />
                   </div>
                 );
               })}
               {a.projection.teammates.filter((t) => t.method !== "already-absent").map((t) => (
-                <p key={t.name} className="mt-2 text-xs text-ink-2">{t.name} ({t.status}): {t.minutes >= 0 ? "+" : ""}{num(t.minutes)} min via {t.method}</p>
+                <p key={t.name} className="mt-2 text-xs text-ink-2">{t.name} ({t.status}): {t.minutes >= 0 ? "+" : ""}{num(t.minutes)} min ({t.method === "with/without" ? "dane z meczów bez niego" : "szacunek"})</p>
               ))}
               {[...a.projection.notes, ...a.projection.warnings].map((w) => <p key={w} className="mt-2 text-xs text-warn">⚠ {w}</p>)}
             </section>
@@ -208,7 +208,7 @@ function PriceRow({ side, price, fair, ev }: { side: string; price: number | nul
     <div className="num flex items-center justify-between rounded-lg bg-surface-2 px-3 py-2">
       <span className="font-semibold">{side}</span>
       <span>{dec(price)}</span>
-      <span className="text-ink-3">no-vig {pct(fair ?? null)}</span>
+      <span className="text-ink-3">bez marży {pct(fair ?? null)}</span>
       <span className={`font-bold ${ev !== null && ev > 0 ? "text-pos" : "text-neg"}`}>EV {signedPct(ev)}</span>
     </div>
   );

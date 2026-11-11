@@ -59,3 +59,12 @@ describe("calibration", () => {
     expect(c.logLossCal!).toBeLessThan(c.logLossRaw!);
   });
 });
+
+describe("przedział niepewności po kalibracji", () => {
+  it("skalibrowany punkt leży wewnątrz skalibrowanego przedziału", () => {
+    const cal = { a: -0.1, b: 0.17, c: 0.81, n: 1000, fittedAt: 1 };
+    const [lo, mid, hi] = [0.86, 0.91, 0.96].map((p) => applyCalibration(cal, p, 0.73));
+    expect(lo).toBeLessThan(mid);
+    expect(mid).toBeLessThan(hi);
+  });
+});

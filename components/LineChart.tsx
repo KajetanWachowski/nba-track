@@ -29,11 +29,11 @@ export function LineBarChart({ data, line, height = 260, showValues }: { data: B
   return (
     <div className="relative">
       <div className="mb-2 flex gap-4 text-xs text-ink-3" aria-hidden>
-        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: "var(--pos)" }} />Over the line</span>
-        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: "var(--muted-bar)" }} />Under the line</span>
-        {line !== null && <span className="flex items-center gap-1.5"><span className="w-4 border-t-2 border-dashed" style={{ borderColor: "var(--ink-2)" }} />Line {line}</span>}
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: "var(--pos)" }} />Powyżej linii</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: "var(--muted-bar)" }} />Poniżej linii</span>
+        {line !== null && <span className="flex items-center gap-1.5"><span className="w-4 border-t-2 border-dashed" style={{ borderColor: "var(--ink-2)" }} />Linia {line}</span>}
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label={`Bar chart of ${n} games${line !== null ? ` against a line of ${line}` : ""}`} onMouseLeave={() => setHover(null)}>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label={`Wykres ${n} meczów${line !== null ? ` na tle linii ${line}` : ""}`} onMouseLeave={() => setHover(null)}>
         {ticks.map((t) => (
           <g key={t}>
             <line x1={pad.l} x2={W - pad.r} y1={y(t)} y2={y(t)} stroke="var(--grid)" strokeWidth={1} />

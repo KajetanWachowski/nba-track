@@ -107,6 +107,20 @@ export function scaledNegBinSample(rng: Rng, mean: number, kappa: number, phi: n
   return Math.floor(kappa * y + rng());
 }
 
+/** Binomial(n, p) by direct Bernoulli summation — n is small here (three-point attempts). */
+export function binomialSample(rng: Rng, n: number, p: number): number {
+  let k = 0;
+  for (let i = 0; i < n; i++) if (rng() < p) k++;
+  return k;
+}
+
+/** Beta(α, β) via two gamma draws. */
+export function betaSample(rng: Rng, a: number, b: number): number {
+  const x = gammaSample(rng, a, 1);
+  const y = gammaSample(rng, b, 1);
+  return x + y > 0 ? x / (x + y) : a / (a + b);
+}
+
 export function erf(x: number): number {
   // Abramowitz–Stegun 7.1.26 (|error| < 1.5e-7)
   const s = Math.sign(x);

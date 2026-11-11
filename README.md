@@ -9,6 +9,42 @@ oznaczoną jako nieaktualną albo komunikat o braku danych. Nic nie jest zmyśla
 > Prawdopodobieństwa są estymacjami z niepewnością, a nie gwarancjami. Patrz sekcja
 > **„Wyniki i uczciwa ocena”** — na dziś model nie wykazał przewagi, która pokonuje marżę.
 
+## Jak NBA EDGE ocenia zakłady (wersja 2)
+
+Najważniejsza jest **jakość i wiarygodność prognozy**, dopiero potem kurs. Samo dodatnie EV nigdy nie wystarcza.
+
+Każdy zakład dostaje trzy niezależne oceny:
+
+| Ocena | Co mierzy |
+|---|---|
+| **Prawdopodobieństwo** | skalibrowana szansa realizacji z przedziałem niepewności |
+| **Jakość danych** (0–100) | liczba meczów, stabilność minut, zmiana roli, kontuzje, wiarygodność kursu, weryfikacja w backteście |
+| **Opłacalność** | EV i przewaga na kursie **Superbet** (gdy brak — najlepszy polski bukmacher) |
+
+oraz listę **argumentów za** i **ryzyk** (krytyczne / istotne / drobne): forma z ostatnich 5 i 10 meczów,
+konflikt sezon vs ostatnie mecze, trend, nieregularność, zmiana minut i usage, powrót po absencji,
+liczba prób za 3 i skuteczność, obrona rywala na pozycji i na obwodzie, tempo, ryzyko blowoutu,
+back-to-back, status zawodnika i kolegów, rozbieżność model/rynek, ruch linii, wiek kursu.
+
+Kategorie (progi w `lib/assess.ts → THRESHOLDS`):
+
+- **Najlepsze** — p ≥ 58%, jakość ≥ 70, EV ≥ +2%, model co najmniej tak pewny jak rynek, ≤ 1 istotne ryzyko.
+- **Dobre** — p ≥ 53%, jakość ≥ 55, EV ≥ 0, ≤ 2 istotne ryzyka.
+- **Warte obserwacji** — blisko progu, brak kursu polskiego albo typ zakładu niezweryfikowany w backteście.
+- **Odrzucone** — każde ryzyko krytyczne (np. 0/5 ostatnich meczów po stronie zakładu, niepewny status) albo słabe parametry.
+
+Najlepsze i Dobre wymagają: kursu polskiego bukmachera **oraz** tego, że dla danego typu zakładu skalibrowany
+model był w backteście lepszy od rynku (np. obecnie: zbiórki, asysty, trójki, Pkt+Zb, Zb+As — tak; punkty,
+PRA, Pkt+As i linie meczowe — nie). Preferowany zakres kursów 1.70–2.20 daje tylko niewielki bonus w rankingu.
+
+Kursy: **Superbet → Betclic → Betfan → inni polscy** (Fortuna, STS, Forbet przez OddsPapi). Kursy USA
+(DraftKings) są wyłącznie punktem odniesienia i nigdy nie są traktowane jako kurs do zagrania w Polsce.
+Kursy wpisane ręcznie są oznaczone jako niezweryfikowane, z czasem wpisania.
+
+Model w wersji 2: trójki liczone jako **próby × skuteczność** (rozkład dwumianowy, skuteczność z rozkładu Beta,
+korekta na obronę obwodu rywala); **ryzyko blowoutu** z handicapu rynku zmienia minuty w symulacji
+(efekt zmierzony na meczach ligi: podstawowi grają krócej, rezerwowi dłużej).
+
 ## Szybki start
 
 ```bash

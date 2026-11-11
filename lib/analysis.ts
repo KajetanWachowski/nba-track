@@ -8,7 +8,7 @@ import { getModelParams } from "./model/params";
 import { distribution, playedGames, probOver, projectPlayer, type PlayerProjection } from "./model/player";
 import { mean, median } from "./model/stats";
 import { addDays, easternDay, fetchInjuries, fetchRoster, fetchScoreboard, fetchSeasonLog, type Injury, type SeasonLogGame } from "./providers/espn";
-import { getAthlete, getTeams, type GameRow, type PlayerGameRow, type TeamRow } from "./store";
+import { getAthlete, getGameLine, getTeams, type GameRow, type PlayerGameRow, type TeamRow } from "./store";
 import { upsertGames } from "./sync";
 
 /** Make sure the next week of schedule is in the DB (scoreboards only, cheap). */
@@ -96,25 +96,26 @@ export async function getPlayerAnalysis(athleteId: string): Promise<PlayerAnalys
   const lines: GameStatLine[] = played.map((r) => ({ game_id: r.game_id, date: r.date, opp_id: r.opp_id, home: r.home, min: r.min, pts: r.pts, reb: r.reb, ast: r.ast, fg3m: r.fg3m, stl: r.stl, blk: r.blk, tov: r.tov, usg: r.usg, starter: r.starter }));
   const last = (n: number) => lines.slice(-n);
   const averages = [
-    { label: "Season", rows: lines },
-    { label: "Last 20", rows: last(20) },
-    { label: "Last 10", rows: last(10) },
-    { label: "Last 5", rows: last(5) },
+    { label: "Sezon", rows: lines },
+    { label: "Ostatnie 20", rows: last(20) },
+    { label: "Ostatnie 15", rows: last(15) },
+    { label: "Ostatnie 10", rows: last(10) },
+    { label: "Ostatnie 5", rows: last(5) },
   ].map(({ label, rows }) => ({
     label,
     n: rows.length,
     values: { ...avgOf(rows, keys), usg: mean(rows.filter((r) => r.usg !== null).map((r) => r.usg!)) } as Record<StatKey | "min" | "usg", number>,
   }));
   averages.push({
-    label: "Median (season)",
+    label: "Mediana (sezon)",
     n: lines.length,
     values: Object.fromEntries([...keys, "usg"].map((k) => [k, median(lines.map((r) => Number((r as unknown as Record<string, number>)[k]) || 0))])) as Record<StatKey | "min" | "usg", number>,
   });
 
   // splits: home/away + with/without the team's main rotation players
   const splits: PlayerAnalysis["splits"] = [
-    { label: "Home", rows: lines.filter((r) => r.home) },
-    { label: "Away", rows: lines.filter((r) => !r.home) },
+    { label: "U siebie", rows: lines.filter((r) => r.home) },
+    { label: "Na wyjeździe", rows: lines.filter((r) => !r.home) },
   ].map(({ label, rows }) => ({ label, n: rows.length, values: avgOf(rows, keys) as Record<StatKey | "min", number> }));
   if (teamId) {
     const mates = new Map<string, { name: string; mins: number[]; games: Set<string> }>();
@@ -131,7 +132,7 @@ export async function getPlayerAnalysis(athleteId: string): Promise<PlayerAnalys
     const top = [...mates.entries()].filter(([, v]) => v.mins.length >= 3).sort((x, y) => mean(y[1].mins) * y[1].mins.length - mean(x[1].mins) * x[1].mins.length).slice(0, 4);
     for (const [, v] of top) {
       const without = lines.filter((r) => !v.games.has(r.game_id));
-      if (without.length >= 1) splits.push({ label: `Without ${v.name}`, n: without.length, values: avgOf(without, keys) as Record<StatKey | "min", number> });
+      if (without.length >= 1) splits.push({ label: `Bez ${v.name}`, n: without.length, values: avgOf(without, keys) as Record<StatKey | "min", number> });
     }
   }
 
@@ -152,6 +153,8 @@ export async function getPlayerAnalysis(athleteId: string): Promise<PlayerAnalys
     const proj = projectPlayer(gctx, athleteId, {
       day: ng.day, teamId, oppId, home, restDays: next.restDays, absences, priorSeason: prior, params: getModelParams(),
       selfStatus: injuries.find((i) => i.athleteId === athleteId)?.status ?? null, sims: 10000,
+      gameMargin: (() => { const gl = getGameLine(ng.id); return gl?.spread_home !== null && gl?.spread_home !== undefined ? (home ? -gl.spread_home : gl.spread_home) : undefined; })(),
+      marginSd: gctx.marginSd,
     });
     if (proj) {
       const markets: NonNullable<PlayerAnalysis["projection"]>["markets"] = {};

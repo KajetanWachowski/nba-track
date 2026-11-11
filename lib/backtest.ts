@@ -89,6 +89,8 @@ export interface BacktestSummary {
   tuning: { params: ModelParams; trainLogLoss: number }[];
   /** out-of-sample accuracy of the projected distribution (player props, test dates) */
   distributionChecks: { market: string; n: number; coverage80: number; rmseModel: number; rmseLine: number }[];
+  /** out-of-sample accuracy per market (test dates) — used to gate recommendations per bet type */
+  byMarket: Record<string, { n: number; logLossRaw: number; logLossMarket: number; logLossCal: number; brierCal: number; brierMarket: number }>;
   notes: string[];
 }
 
@@ -140,6 +142,7 @@ export async function generateRows(games: GameRow[], params: ModelParams, sims: 
         if (!byAthlete.has(l.athlete_id)) byAthlete.set(l.athlete_id, []);
         byAthlete.get(l.athlete_id)!.push(l);
       }
+      const gameLine = db.prepare("SELECT * FROM game_lines WHERE game_id = ? AND book = 'draftkings'").get(g.id) as unknown as GameLineRow | undefined;
       await mapLimit([...byAthlete], 8, async ([athleteId, ls]) => {
         const row = box.find((r) => r.athlete_id === athleteId);
         if (!row || row.dnp || row.min <= 0) return; // void bet
@@ -147,6 +150,8 @@ export async function generateRows(games: GameRow[], params: ModelParams, sims: 
         const proj = projectPlayer(ctx, athleteId, {
           day, teamId: row.team_id, oppId: home ? g.away_id : g.home_id, home, restDays: restDays(ctx, row.team_id, day),
           absences: abs[row.team_id] ?? [], priorSeason: await prior(athleteId), sims, params,
+          // closing spread as the expected margin (known before tip-off; same choice as live)
+          gameMargin: gameLine?.spread_home !== null && gameLine?.spread_home !== undefined ? -gameLine.spread_home : undefined, marginSd: ctx.marginSd,
         });
         if (!proj || proj.games < 3) return;
         for (const l of ls) {
@@ -287,7 +292,7 @@ export async function runBacktest(opts: { trainFrac?: number; minEv?: number; si
     }
     params = tuning.reduce((a, b) => (b.trainLogLoss < a.trainLogLoss ? b : a)).params;
     setMeta("modelParams", params);
-    notes.push(`Parameters tuned on training dates only: priorStrength=${params.priorStrength}, rateHalfLife=${params.rateHalfLife}.`);
+    notes.push(`Parametry dobrane tylko na meczach treningowych: siła priora=${params.priorStrength}, okres półtrwania formy=${params.rateHalfLife} meczów.`);
   }
 
   // Pass A (training dates only): estimate multiplicative de-bias factors for minutes and rates.
@@ -307,7 +312,7 @@ export async function runBacktest(opts: { trainFrac?: number; minEv?: number; si
     if (proj > 0) rateAdj[stat] = 1 + (act / proj - 1) * (rs.length / (rs.length + 200));
   }
   params = { ...params, minutesAdj: 1 + (minutesAdj - 1) * (pm.length / (pm.length + 200)), rateAdj };
-  notes.push(`De-bias factors from training dates: minutes ×${params.minutesAdj.toFixed(3)}, ` +
+  notes.push(`Korekty systematycznego błędu (z meczów treningowych): minuty ×${params.minutesAdj.toFixed(3)}, ` +
     Object.entries(rateAdj).map(([k, v]) => `${k} ×${v!.toFixed(3)}`).join(", ") + ".");
   setMeta("modelParams", params);
 
@@ -337,21 +342,35 @@ export async function runBacktest(opts: { trainFrac?: number; minEv?: number; si
     const allRows: CalRow[] = rows.filter((r) => r.scope === scope && r.y !== null).map((r) => ({ pModel: r.rawProb, pMarket: r.marketProb, y: r.y as 0 | 1 }));
     cal[scope] = fitCalibration(allRows, scope === "game" ? 10 : 2);
     if (cal[scope].fittedAt) saveCalibration(scope, cal[scope]);
-    else notes.push(`${scope}: fewer than 50 settled rows — calibration not fitted.`);
+    else notes.push(`${scope === "player" ? "zawodnicy" : "mecze"}: mniej niż 50 rozliczonych linii — kalibracja niedopasowana.`);
   }
 
   const testPlayer = rows.filter((r) => r.fold === "test" && r.scope === "player" && r.y !== null);
   const ysP = testPlayer.map((r) => r.y as number);
   const betting = simulateBets(rows.filter((r) => r.fold === "test"), minEv);
-  notes.push("Bets simulated at DraftKings OPENING prices, 1-unit flat stakes, best side per market only if calibrated EV ≥ threshold.");
-  notes.push("Game markets (ML/spread/total): ESPN archives only closing odds for past games, so game-market backtests use closing prices (a harder benchmark; no CLV).");
-  notes.push("Absences in historical games come from box scores (who did not play) — a stand-in for the pre-game injury report.");
+  notes.push("Zakłady symulowane po kursach OTWARCIA DraftKings, stała stawka 1 jednostki, tylko lepsza strona rynku i tylko gdy skalibrowane EV ≥ progu.");
+  notes.push("Linie meczowe: ESPN archiwizuje tylko kursy zamknięcia, więc backtest meczów używa kursów zamknięcia (trudniejszy test, bez CLV).");
+  notes.push("Nieobecności w historycznych meczach pochodzą z protokołów (kto nie zagrał) — zastępują przedmeczowy raport kontuzji.");
 
   const distributionChecks = [...new Set(testPlayer.map((r) => r.market))].sort().map((market) => {
     const rs = testPlayer.filter((r) => r.market === market);
     const rmse = (f: (r: BacktestRow) => number) => Math.sqrt(rs.reduce((s, r) => s + (r.actual - f(r)) ** 2, 0) / rs.length);
     return { market, n: rs.length, coverage80: rs.reduce((s, r) => s + (r.inBand ?? 0), 0) / rs.length, rmseModel: rmse((r) => r.projMean ?? r.line), rmseLine: rmse((r) => r.line) };
   });
+
+  const byMarket: BacktestSummary["byMarket"] = {};
+  for (const market of [...new Set(rows.filter((r) => r.fold === "test" && r.y !== null).map((r) => r.market))]) {
+    const rs = rows.filter((r) => r.fold === "test" && r.y !== null && r.market === market);
+    const ys = rs.map((r) => r.y as number);
+    byMarket[market] = {
+      n: rs.length,
+      logLossRaw: logLoss(rs.map((r) => r.rawProb), ys),
+      logLossMarket: logLoss(rs.map((r) => r.marketProb), ys),
+      logLossCal: logLoss(rs.map((r) => r.calProb!), ys),
+      brierCal: brier(rs.map((r) => r.calProb!), ys),
+      brierMarket: brier(rs.map((r) => r.marketProb), ys),
+    };
+  }
 
   const summary: BacktestSummary = {
     createdAt: Date.now(),
@@ -372,6 +391,7 @@ export async function runBacktest(opts: { trainFrac?: number; minEv?: number; si
     betting,
     tuning,
     distributionChecks,
+    byMarket,
     notes,
   };
 

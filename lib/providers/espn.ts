@@ -523,7 +523,7 @@ export interface SeasonLogGame {
   oppId: string;
   home: boolean;
   min: number;
-  pts: number; reb: number; ast: number; fg3m: number; stl: number; blk: number; tov: number;
+  pts: number; reb: number; ast: number; fg3m: number; fg3a: number; fga: number; fgm: number; stl: number; blk: number; tov: number;
 }
 
 /** A player's regular-season game log for a past season (used as the prior for the current season). */
@@ -555,6 +555,9 @@ export async function fetchSeasonLog(athleteId: string, season: number): Promise
         reb: g("totalRebounds"),
         ast: g("assists"),
         fg3m: parseInt(String(v[idx("threePointFieldGoalsMade-threePointFieldGoalsAttempted")] ?? "0")) || 0,
+        fg3a: parseInt(String(v[idx("threePointFieldGoalsMade-threePointFieldGoalsAttempted")] ?? "0-0").split("-")[1]) || 0,
+        fgm: parseInt(String(v[idx("fieldGoalsMade-fieldGoalsAttempted")] ?? "0")) || 0,
+        fga: parseInt(String(v[idx("fieldGoalsMade-fieldGoalsAttempted")] ?? "0-0").split("-")[1]) || 0,
         stl: g("steals"),
         blk: g("blocks"),
         tov: g("turnovers"),
