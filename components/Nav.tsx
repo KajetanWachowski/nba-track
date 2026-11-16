@@ -6,6 +6,7 @@ export const NAV = [
   { href: "/", label: "Pulpit" },
   { href: "/value-bets", label: "Propozycje zakładów" },
   { href: "/kupony", label: "Kupony dnia" },
+  { href: "/wyniki-typow", label: "Wyniki typów" },
   { href: "/pl-odds", label: "Polskie kursy" },
   { href: "/games", label: "Mecze NBA" },
   { href: "/players", label: "Analiza zawodnika" },

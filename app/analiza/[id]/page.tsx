@@ -12,6 +12,7 @@ import { getTeams } from "@/lib/store";
 import { shortDate, tipTime } from "@/lib/format";
 import { buildNarrative } from "@/lib/narrative";
 import { loadSlate } from "@/lib/page-data";
+import { findArchivedBet } from "@/lib/daily-picks";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,9 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
   const betId = decodeURIComponent(id);
   const { a, error } = await loadSlate();
   if (!a) return <Notice tone="neg">Nie udało się wczytać meczów: {error}</Notice>;
-  const b = a.bets.find((x) => x.id === betId);
+  const live = a.bets.find((x) => x.id === betId);
+  const archived = live ? null : findArchivedBet(betId);
+  const b = live ?? archived?.bet;
   if (!b) {
     return (
       <div className="space-y-3">
@@ -45,7 +48,8 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
   const opp = [...teams.values()].find((t) => t.abbr === b.oppAbbr);
   const pa = b.kind === "player" ? await getPlayerAnalysis(b.subjectId).catch(() => null) : null;
   const side: "over" | "under" = over ? "over" : "under";
-  const bars = (pa?.games ?? []).filter((g) => g.min > 0).map((g) => ({
+  // zapis sprzed meczu: pokazujemy tylko mecze rozegrane przed tym zakładem
+  const bars = (pa?.games ?? []).filter((g) => g.min > 0 && (!archived || Date.parse(g.date) < Date.parse(b.tipoff) - 3600_000)).map((g) => ({
     key: g.game_id,
     value: statOf(g, b.market as PlayerMarket),
     opp: pa?.teams[g.opp_id]?.abbr ?? "",
@@ -57,9 +61,15 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
+      {archived && (
+        <Notice tone="neutral">
+          Mecz już się rozpoczął — to <b>zapis analizy sprzed meczu</b> (stan z {new Date(archived.savedAt).toLocaleString("pl-PL", { timeZone: "Europe/Warsaw", dateStyle: "short", timeStyle: "short" })}).
+          Wynik na żywo i rozliczenie znajdziesz w zakładce <Link href="/wyniki-typow" className="text-accent">Wyniki typów</Link>.
+        </Notice>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Link href="/value-bets" className="text-sm text-accent">← Wszystkie propozycje</Link>
-        {b.kind === "player" && (
+        {b.kind === "player" && !archived && (
           <Link href={`/historia/${encodeURIComponent(b.id)}`} className="rounded-lg bg-accent px-3 py-1.5 text-sm font-bold text-black hover:opacity-90">Historia typu — grafiki ▶</Link>
         )}
       </div>

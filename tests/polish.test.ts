@@ -58,3 +58,14 @@ describe("OddsPapi error messages", () => {
     expect(out).not.toContain("zebet");
   });
 });
+
+import { statusPl } from "../lib/daily-results";
+describe("status meczu na żywo po polsku", () => {
+  it("tłumaczy typowe statusy ESPN", () => {
+    expect(statusPl("End of 3rd")).toBe("Koniec 3. kwarty");
+    expect(statusPl("5:12 - 4th")).toBe("4. kwarta · 5:12");
+    expect(statusPl("Halftime")).toBe("Przerwa");
+    expect(statusPl("Final")).toBe("Koniec");
+    expect(statusPl("2:01 - OT")).toBe("Dogrywka · 2:01");
+  });
+});

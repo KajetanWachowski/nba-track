@@ -33,6 +33,7 @@ import { explainProjection } from "./model/explain";
 import { listManual, manualToOffers } from "./manual-odds";
 import { fetchPolishOffers, getUsage as getPapiUsage, oddsPapiEnabled } from "./providers/oddspapi";
 import { logPredictions } from "./tracking";
+import { recordDailyPicks } from "./daily-picks";
 
 export const P_OUT: Record<string, number> = { OUT: 1, DOUBTFUL: 0.75, QUESTIONABLE: 0.35, "DAY-TO-DAY": 0.25, PROBABLE: 0.05 };
 
@@ -514,6 +515,11 @@ async function runSlate(day: string, force: boolean): Promise<SlateAnalysis> {
     logPredictions(bets);
   } catch (e) {
     warnings.push(`nie udało się zapisać typów: ${(e as Error).message}`);
+  }
+  try {
+    recordDailyPicks(day, bets);
+  } catch (e) {
+    warnings.push(`nie udało się zapisać typów dnia: ${(e as Error).message}`);
   }
 
   return {

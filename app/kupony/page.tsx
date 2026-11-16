@@ -42,6 +42,7 @@ export default async function CouponsPage({ searchParams }: { searchParams: Prom
         </p>
       </div>
 
+      <p className="mb-4 text-sm text-ink-3">Kupony, których mecze już się zaczęły, i ich wyniki na żywo: <Link href="/wyniki-typow" className="text-accent">Wyniki typów →</Link></p>
       <div className="mb-4 flex flex-wrap gap-2 text-sm">
         <Link href="/kupony" className={`rounded-lg border border-line px-3 py-1.5 font-semibold ${wantPl ? "bg-surface-2 text-ink" : "text-ink-3"}`}>Tylko polscy bukmacherzy</Link>
         <Link href="/kupony?zrodlo=wszystkie" className={`rounded-lg border border-line px-3 py-1.5 font-semibold ${!wantPl ? "bg-surface-2 text-ink" : "text-ink-3"}`}>Także kursy orientacyjne (USA)</Link>
