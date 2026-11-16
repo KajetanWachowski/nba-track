@@ -157,9 +157,13 @@ export interface PapiMarket {
 }
 
 let marketCache: { at: number; byId: Map<number, PapiMarket> } | null = null;
+let forceMarketsNext = false;
 async function marketIndex(network = false) {
   if (marketCache && Date.now() - marketCache.at < 6 * 3600 * 1000) return marketCache.byId;
-  const markets = await get<PapiMarket[]>("/markets", { sportId: NBA_SPORT }, 7 * 86400, network);
+  // nowe ID rynków u bukmachera → przy następnym pobraniu wymuś świeżą listę rynków (1 zapytanie)
+  const ttl = forceMarketsNext && network ? 0 : 7 * 86400;
+  if (network) forceMarketsNext = false;
+  const markets = await get<PapiMarket[]>("/markets", { sportId: NBA_SPORT }, ttl, network);
   marketCache = { at: Date.now(), byId: new Map(markets.map((m) => [m.marketId, m])) };
   return marketCache.byId;
 }
@@ -272,6 +276,21 @@ export interface PapiResult {
   notFetched: boolean;
   /** set when continuing makes no sense (e.g. no bookmaker accessible) — the refresh stops */
   fatal?: string;
+  /** co przyszło od każdego bukmachera (przed dopasowaniem zawodników) */
+  bookStats: Record<string, BookStat>;
+}
+
+export interface BookStat {
+  /** aktywne kursy na zawodników / meczowe, które przyszły z OddsPapi */
+  props: number;
+  game: number;
+  /** kursy na zawodników przypisane do zawodnika z naszej bazy */
+  mapped: number;
+  /** rynki o nieznanym ID (pominięte) */
+  unknownMarkets: number;
+  /** nazwiska, których nie udało się dopasować (próbka) */
+  unmatched: string[];
+  inactive: boolean;
 }
 
 const flipName = (s: string) => (s.includes(",") ? s.split(",").map((x) => x.trim()).reverse().join(" ") : s);
@@ -279,7 +298,9 @@ const titleOf = (key: string) => ({ superbet: "Superbet", betclic: "Betclic", be
 
 /** Polish-book offers for the given ESPN games; players are matched by name to the two teams' rosters. */
 export async function fetchPolishOffers(games: GameRef[], playerIndex: Map<string, string>, rosterTeam?: Map<string, string>, network = false): Promise<PapiResult> {
-  const result: PapiResult = { offers: [], matchedFixtures: 0, skippedMarkets: 0, foreignPlayers: 0, books: [], fetchedAt: getUsage().lastRefresh ?? 0, errors: [], notFetched: false };
+  const result: PapiResult = { offers: [], matchedFixtures: 0, skippedMarkets: 0, foreignPlayers: 0, books: [], fetchedAt: getUsage().lastRefresh ?? 0, errors: [], notFetched: false, bookStats: {} };
+  const statOf = (key: string): BookStat => (result.bookStats[key] ??= { props: 0, game: 0, mapped: 0, unknownMarkets: 0, unmatched: [], inactive: false });
+  const findPlayer = playerMatcher(playerIndex);
   if (!games.length) return result;
   const bmap = bookmakerMap();
   const days = games.map((g) => g.date.slice(0, 10)).sort();
@@ -310,8 +331,14 @@ export async function fetchPolishOffers(games: GameRef[], playerIndex: Map<strin
     result.matchedFixtures++;
     const bookmakerOdds = await fetchFixtureOdds(f.fixtureId, result, network);
     for (const [slug, bk] of Object.entries<any>(bookmakerOdds)) {
-      if (!bk.bookmakerIsActive || bk.suspended) continue;
       const key = bmap.get(slug) ?? slug;
+      const bs = statOf(key);
+      // „nieaktywny” bywa ustawiany dla całego bukmachera, choć ceny są aktualne — liczymy je, ale zapisujemy flagę
+      if (bk.suspended) {
+        bs.inactive = true;
+        continue;
+      }
+      if (bk.bookmakerIsActive === false) bs.inactive = true;
       const mk = (market: Market, subjectId: string, side: Offer["side"], line: number | null, dec: number, opp: number | null, kind: PapiOffer["kind"]): PapiOffer => ({
         gameId: g.gameId, market, subjectId, side, line, book: key, bookTitle: titleOf(key), dec, oppDec: opp, lastUpdate: null, kind,
       });
@@ -320,6 +347,7 @@ export async function fetchPolishOffers(games: GameRef[], playerIndex: Map<strin
         const cm = meta ? canonicalMarket(meta) : null;
         if (!meta || !cm) {
           result.skippedMarkets++;
+          if (!meta) bs.unknownMarkets++;
           continue;
         }
         const nameOf = new Map(meta.outcomes.map((o) => [String(o.outcomeId), o.outcomeName]));
@@ -336,6 +364,7 @@ export async function fetchPolishOffers(games: GameRef[], playerIndex: Map<strin
         }
         if (!price.size) continue;
         books.add(key);
+        for (const m2 of price.values()) for (const pid of m2.keys()) if (cm.kind === "game" || pid === "0") bs.game++; else bs.props++;
         if (cm.kind === "game") {
           const p1 = price.get("1")?.get("0")?.p, p2 = price.get("2")?.get("0")?.p;
           const ov = price.get("Over")?.get("0")?.p, un = price.get("Under")?.get("0")?.p;
@@ -347,11 +376,14 @@ export async function fetchPolishOffers(games: GameRef[], playerIndex: Map<strin
         }
         const athleteOf = (pid: string, name: string | null): string | null => {
           if (pid === "0" || !name) return null;
-          const id = playerIndex.get(normName(flipName(name)));
-          if (!id || (rosterTeam && ![g.homeId, g.awayId].includes(rosterTeam.get(id) ?? ""))) {
+          if (!playerIndex.size) return null; // pobieranie bez dopasowania (dopasowanie przy wyświetlaniu strony)
+          const id = findPlayer(name, rosterTeam ? [g.homeId, g.awayId].map((t) => (pidTeam: string) => rosterTeam.get(pidTeam) === t) : null);
+          if (!id) {
             result.foreignPlayers++;
+            if (bs.unmatched.length < 8 && !bs.unmatched.includes(name)) bs.unmatched.push(name);
             return null;
           }
+          bs.mapped++;
           return id;
         };
         if (cm.kind === "ou") {
@@ -378,15 +410,26 @@ export async function fetchPolishOffers(games: GameRef[], playerIndex: Map<strin
     }
   }
   result.books = [...books];
+  if (Object.values(result.bookStats).some((b) => b.unknownMarkets > 0)) {
+    marketCache = null;
+    if (network) forceMarketsNext = true;
+  }
+  // dopasowanie zawodników (przy wyświetlaniu strony) — zapisz, żeby pokazać na stronie „Polskie kursy”
+  if (playerIndex.size && Object.keys(result.bookStats).length)
+    setMeta("oddspapi:mapStats", { at: Date.now(), books: Object.fromEntries(Object.entries(result.bookStats).map(([k, v]) => [k, { props: v.props, mapped: v.mapped, unmatched: v.unmatched }])) });
   if (network) {
     const bad = getMeta<BadSlugs>("oddspapi:badSlugs");
     const report: BookReport[] = [...bmap].map(([slug, key]) => {
       const offers = result.offers.filter((o) => o.book === key).length;
+      const st = result.bookStats[key];
+      const raw = st ? st.props + st.game : 0;
       const reason = bad && bad.until > Date.now() && bad.slugs.includes(slug) ? bad.reasons?.[slug] ?? "brak-w-planie" : null;
       if (reason === "brak-w-planie") return { slug, key, status: "brak-w-planie", offers, note: "Twój plan OddsPapi nie obejmuje tego bukmachera (403). Pomijany przez 24 h." };
       if (reason === "nieznany") return { slug, key, status: "nieznany", offers, note: "OddsPapi nie zna takiej nazwy — popraw ODDSPAPI_BOOKMAKERS (np. efortuna.pl, a nie fortuna.pl)." };
-      if (offers > 0) return { slug, key, status: "ok", offers, note: `${offers} kursów na dzisiejsze mecze.` };
-      return { slug, key, status: "brak-kursow", offers, note: "Dostęp jest, ale OddsPapi nie ma od niego kursów na te mecze NBA (bukmacher mógł jeszcze nie wystawić linii)." };
+      if (raw > 0) return { slug, key, status: "ok", offers: raw, note: `${raw} kursów na dzisiejsze mecze (${st!.props} na zawodników, ${st!.game} meczowych).${st!.inactive ? " OddsPapi oznacza go jako nieaktywnego — kursy mogą być nieaktualne." : ""}` };
+      if (st?.inactive) return { slug, key, status: "brak-kursow", offers: 0, note: "OddsPapi oznacza tego bukmachera jako nieaktywnego/zawieszonego dla tych meczów — kursów nie da się pobrać. Wpisz kursy ręcznie (formularz poniżej)." };
+      if (st?.unknownMarkets) return { slug, key, status: "brak-kursow", offers: 0, note: `Przyszło ${st.unknownMarkets} rynków o nieznanym ID — kliknij „Pobierz kursy” ponownie (odświeżę listę rynków).` };
+      return { slug, key, status: "brak-kursow", offers, note: "Dostęp jest, ale OddsPapi nie przysłało od niego żadnych kursów na te mecze NBA (możliwe, że OddsPapi jeszcze ich nie zebrało, choć są na stronie bukmachera). Spróbuj za kilkanaście minut albo wpisz kursy ręcznie." };
     });
     setMeta("oddspapi:lastReport", { at: Date.now(), books: report });
     const u = getUsage();
@@ -400,4 +443,49 @@ export async function fetchPolishOffers(games: GameRef[], playerIndex: Map<strin
 export function refreshCost(preGames: number): number {
   const missing = ["/participants", "/markets"].filter((p) => !readCache(`oddspapi4:${p}?${new URLSearchParams(p === "/markets" ? { sportId: String(NBA_SPORT) } : { sportId: String(NBA_SPORT), tournamentId: String(NBA_TOURNAMENT) })}`)).length;
   return 1 + preGames + missing;
+}
+
+
+/**
+ * Dopasowanie nazwiska z oferty bukmachera do zawodnika z naszej bazy. Kolejno:
+ * pełne imię i nazwisko → odwrócona kolejność („Tatum Jayson”, „Tatum, Jayson”) → inicjał + nazwisko („J. Tatum”)
+ * → samo nazwisko, jeśli jest jednoznaczne wśród zawodników dwóch drużyn meczu.
+ */
+export function playerMatcher(playerIndex: Map<string, string>) {
+  const byInitial = new Map<string, string[]>();
+  const byLast = new Map<string, string[]>();
+  const compact = new Map<string, string>(); // bez spacji: „gilgeous alexander” = „gilgeousalexander”
+  for (const [name, id] of playerIndex) {
+    compact.set(name.replace(/ /g, ""), id);
+    const parts = name.split(" ").filter(Boolean);
+    if (parts.length < 2) continue;
+    const last = parts.slice(1).join(" ");
+    const k1 = `${parts[0][0]} ${last}`;
+    byInitial.set(k1, [...(byInitial.get(k1) ?? []), id]);
+    byLast.set(last, [...(byLast.get(last) ?? []), id]);
+    byLast.set(parts[parts.length - 1], [...(byLast.get(parts[parts.length - 1]) ?? []), id]);
+  }
+  return (raw: string, teamFilters: ((id: string) => boolean)[] | null): string | null => {
+    const inGame = (id: string) => !teamFilters || teamFilters.some((f) => f(id));
+    const pick = (ids: string[] | undefined) => {
+      const ok = [...new Set(ids ?? [])].filter(inGame);
+      return ok.length === 1 ? ok[0] : null;
+    };
+    const n = normName(flipName(raw));
+    const direct = playerIndex.get(n);
+    if (direct && inGame(direct)) return direct;
+    const c = compact.get(n.replace(/ /g, ""));
+    if (c && inGame(c)) return c;
+    const parts = n.split(" ").filter(Boolean);
+    if (parts.length >= 2) {
+      const rev = playerIndex.get([...parts.slice(1), parts[0]].join(" "));
+      if (rev && inGame(rev)) return rev;
+      const revLastFirst = playerIndex.get([parts[parts.length - 1], ...parts.slice(0, -1)].join(" "));
+      if (revLastFirst && inGame(revLastFirst)) return revLastFirst;
+      // „J Tatum” / „Tatum J”
+      if (parts[0].length === 1) { const id = pick(byInitial.get(`${parts[0]} ${parts.slice(1).join(" ")}`)); if (id) return id; }
+      if (parts[parts.length - 1].length === 1) { const id = pick(byInitial.get(`${parts[parts.length - 1]} ${parts.slice(0, -1).join(" ")}`)); if (id) return id; }
+    }
+    return pick(byLast.get(parts.slice(1).join(" "))) ?? pick(byLast.get(parts[parts.length - 1])) ?? pick(byLast.get(parts[0]));
+  };
 }

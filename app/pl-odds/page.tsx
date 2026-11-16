@@ -1,3 +1,4 @@
+import { getMeta } from "@/lib/db";
 import Link from "next/link";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { DeleteManualButton, ManualOddsForm, type FormGame } from "@/components/ManualOddsForm";
@@ -105,6 +106,7 @@ export default async function PolishOdds({ searchParams }: { searchParams: Promi
       })()}
       {oddsPapiEnabled() && (() => {
         const rep = getLastReport();
+        const ms = getMeta<{ at: number; books: Record<string, { props: number; mapped: number; unmatched: string[] }> }>("oddspapi:mapStats");
         const label: Record<string, string> = { superbet: "Superbet", betclic: "Betclic", betfan: "Betfan", fortuna: "Fortuna", sts: "STS", forbet: "Forbet" };
         const tone: Record<string, string> = { ok: "text-pos", "brak-w-planie": "text-neg", nieznany: "text-neg", "brak-kursow": "text-warn" };
         return (
@@ -122,6 +124,12 @@ export default async function PolishOdds({ searchParams }: { searchParams: Promi
                     <span className="w-24 font-semibold">{label[b.key] ?? b.key}</span>
                     <code className="text-xs text-ink-3">{b.slug}</code>
                     <span className={tone[b.status]}>{b.note}</span>
+                    {ms?.books[b.key] && ms.books[b.key].props > 0 && (
+                      <span className={`w-full pl-26 text-xs ${ms.books[b.key].mapped / ms.books[b.key].props >= 0.8 ? "text-ink-3" : "text-warn"}`}>
+                        Dopasowano do zawodników: {ms.books[b.key].mapped} z {ms.books[b.key].props}
+                        {ms.books[b.key].unmatched.length > 0 && <> · nierozpoznane nazwiska: {ms.books[b.key].unmatched.join(", ")}</>}
+                      </span>
+                    )}
                   </li>
                 ))}
                 <li className="flex flex-wrap gap-x-2"><span className="w-24 font-semibold">Betfan</span><span className="text-ink-3">Nie ma go w OddsPapi — kursy tylko wpisane ręcznie (formularz poniżej).</span></li>
