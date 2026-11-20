@@ -36,6 +36,8 @@ function ensureTable() {
   getDb().exec(`CREATE TABLE IF NOT EXISTS daily_sets (
     day TEXT NOT NULL, kind TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, locked_at INTEGER,
     legs TEXT NOT NULL, PRIMARY KEY (day, kind))`);
+  // „Kupon bezpieczniejszy” został zastąpiony przez „Pewniaczka” — jego historia liczy się do Pewniaczka
+  getDb().exec(`UPDATE OR IGNORE daily_sets SET kind = 'kupon-pewniaczek' WHERE kind = 'kupon-bezpieczny'`);
 }
 
 /** Najlepsze typy dnia: „Najlepsze”/„Dobre”, potem najwyższa szansa (≥ 60%, kurs ≥ 1.50); jeden typ na zawodnika, maks. 5. */

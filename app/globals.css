@@ -55,3 +55,6 @@ body { font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
 .label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; }
 table { border-collapse: collapse; }
 ::selection { background: var(--accent); color: #000; }
+
+/* aplikacja na telefonie (pełny ekran): treść nie wchodzi pod pasek statusu i „wcięcie” ekranu */
+body { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }

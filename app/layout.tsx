@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import { Nav, ThemeToggle } from "@/components/Nav";
 import "./globals.css";
@@ -6,6 +6,19 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "NBA Edge",
   description: "Analiza NBA: projekcje zawodników, analiza rywali i ocena zakładów z priorytetem dla polskich bukmacherów.",
+  applicationName: "NBA Edge",
+  appleWebApp: { capable: true, title: "NBA Edge", statusBarStyle: "black-translucent" },
+  formatDetection: { telephone: false },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#0b0e13" },
+    { media: "(prefers-color-scheme: light)", color: "#f5f6f8" },
+  ],
 };
 
 const themeScript = `try{var t=localStorage.getItem("theme");if(t)document.documentElement.dataset.theme=t}catch(e){}`;
