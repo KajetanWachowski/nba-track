@@ -2,6 +2,7 @@
  * „Dlaczego ten typ” — opis zakładu w stylu analizy typera: rola i minuty, forma, matchup, skład, kurs,
  * główne ryzyko i liczby pokrycia linii. Wszystko wyłącznie z danych modelu i statystyk (nic nie jest dopisywane).
  */
+import { defenderImpact } from "./defender";
 import type { BetEval } from "./engine";
 
 export type Tone = "pos" | "neg" | "warn" | "neutral";
@@ -69,9 +70,9 @@ export function buildNarrative(b: BetEval): Narrative {
     const mu: string[] = [];
     if (s.explain?.opponent.length) mu.push(...s.explain.opponent);
     else if (m.oppDrtgRank) mu.push(`${m.opp}: ${m.oppDrtgRank}. obrona ligi (1 = najlepsza).`);
-    if (s.likelyDefender) {
-      const d = s.likelyDefender;
-      mu.push(`Prawdopodobny bezpośredni rywal: ${d.name} (${f1(d.min)} min, ${f1(d.stl)} przechwytu i ${f1(d.blk)} bloku na mecz) — najwięcej minut u ${m.opp} na tej samej pozycji. To przybliżenie: publiczne dane nie mówią, kto kogo kryje 1 na 1.`);
+    if (s.likelyDefender && s.likelyDefender.stl36 !== undefined) {
+      const di = defenderImpact(s.likelyDefender, b.market, b.side);
+      if (di) mu.push(`Prawdopodobny obrońca — ${di.verdict.toLowerCase()}. ${di.text}`);
     }
     const sf = m.statFactor;
     const muTone: Tone = Math.abs(sf - 1) < 0.03 ? "neutral" : (sf > 1) === over ? "pos" : "neg";
@@ -82,10 +83,7 @@ export function buildNarrative(b: BetEval): Narrative {
     for (const t of s.context.teammatesOut) sk.push(`Brak w drużynie: ${t}.`);
     let skTone: Tone = "neutral";
     for (const om of s.oppMissing ?? []) {
-      if (om.effect === null) {
-        sk.push(`${m.opp} bez ${om.name} (${om.status}) — za mało meczów bez niego, żeby to policzyć.`);
-        continue;
-      }
+      if (om.effect === null) continue; // za mało meczów bez niego — nie pokazujemy niepoliczalnych braków
       const more = om.effect > 1;
       sk.push(`${m.opp} bez ${om.name} (${om.status}, ${f1(om.min)} min${om.samePos ? ", ta sama pozycja" : ""}): w ${om.nWithout} meczach bez niego rywale tej pozycji zdobywali ${more ? "więcej" : "mniej"} (${more ? "+" : "−"}${Math.abs((om.effect - 1) * 100).toFixed(0)}% na minutę) — gra rezerwowy.`);
       if (Math.abs(om.effect - 1) >= 0.03) skTone = more === over ? "pos" : "neg";

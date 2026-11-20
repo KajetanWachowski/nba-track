@@ -1,7 +1,12 @@
 /**
- * Kupony dnia: kilka nóg z różnych meczów, o łącznym kursie w zadanym przedziale.
- * Wybieramy kombinację o NAJWYŻSZEJ łącznej szansie (skalibrowane prawdopodobieństwa, mecze traktowane jako niezależne),
- * a przy podobnej szansie — o wyższym EV. Nogi z tego samego meczu są pomijane, bo są ze sobą skorelowane.
+ * Kupony dnia: 2–3 nogi z różnych meczów, o łącznym kursie w zadanym przedziale.
+ * Wybieramy kombinację o NAJWYŻSZEJ łącznej szansie (skalibrowane prawdopodobieństwa, mecze traktowane jako niezależne).
+ * Ustawienia z testu na rozegranych meczach (część testowa backtestu, kursy otwarcia):
+ *  - przy tym samym kursie łącznym mniej nóg = częściej wchodzi (marża bukmachera mnoży się z każdą nogą):
+ *    kupon ~3 z 2 nóg wchodził w 47% przypadków, z 3 nóg w 42%;
+ *  - bardzo niskie kursy (< 1.60) w kuponach ~4 i ~5 obniżały trafialność (19% vs 31% przy ~4),
+ *    bo faworyci u bukmachera są przeceniani;
+ *  - nogi z tego samego meczu są pomijane, bo są ze sobą powiązane.
  */
 import type { BetEval } from "./engine";
 
@@ -11,12 +16,16 @@ export interface CouponTarget {
   min: number;
   max: number;
   maxLegs: number;
+  /** minimalny kurs pojedynczej nogi */
+  minLegPrice?: number;
+  /** krótki opis dla użytkownika */
+  blurb?: string;
 }
 
 export const COUPON_TARGETS: CouponTarget[] = [
-  { key: "bezpieczny", title: "Kupon bezpieczniejszy", min: 2.5, max: 4, maxLegs: 3 },
-  { key: "sredni", title: "Kupon średni", min: 6, max: 8, maxLegs: 4 },
-  { key: "odwazny", title: "Kupon odważny", min: 9, max: 12, maxLegs: 5 },
+  { key: "pewniaczek", title: "Pewniaczek", min: 2.5, max: 3.4, maxLegs: 2, minLegPrice: 1.4, blurb: "kurs ok. 3 · 2 typy" },
+  { key: "zloty", title: "Złoty środek", min: 3.5, max: 4.6, maxLegs: 3, minLegPrice: 1.6, blurb: "kurs ok. 4 · 2–3 typy" },
+  { key: "petarda", title: "Petarda", min: 4.6, max: 5.8, maxLegs: 3, minLegPrice: 1.6, blurb: "kurs ok. 5 · 3 typy" },
 ];
 
 export interface LegLike { id: string; gameId: string; price: number; modelProb: number }
@@ -51,7 +60,7 @@ export function couponCandidates(bets: BetEval[], opts: { onlyPlayable?: boolean
 }
 
 export function buildCoupon<L extends LegLike>(cands: L[], target: CouponTarget, exclude = new Set<string>()): Omit<Coupon<L>, "allPlayable"> | null {
-  const pool = cands.filter((b) => !exclude.has(b.id));
+  const pool = cands.filter((b) => !exclude.has(b.id) && b.price >= (target.minLegPrice ?? 1));
   let best: { legs: L[]; odds: number; prob: number; ev: number } | null = null;
   const score = (prob: number, ev: number) => Math.log(prob) + 0.5 * ev;
   const legs: L[] = [];

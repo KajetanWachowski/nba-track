@@ -82,7 +82,12 @@ export interface PlayerProjection {
   /** probability the game is decided by ≥ threshold points, and the minutes multiplier if it is */
   blowout: { prob: number; factor: number; threshold: number };
   /** prawdopodobny bezpośredni rywal: zawodnik rywala na tej samej pozycji z największą liczbą minut */
-  likelyDefender: { name: string; min: number; stl: number; blk: number; pf: number; games: number; pos: PosGroup } | null;
+  likelyDefender: {
+    name: string; min: number; stl: number; blk: number; pf: number; games: number; pos: PosGroup;
+    /** przechwyty i bloki na 36 minut vs średnia ligi dla tej pozycji (1 = średnio) */
+    stl36: number; blk36: number; stlIdx: number; blkIdx: number;
+    rating: "mocny" | "przeciętny" | "słaby";
+  } | null;
   /** nieobecni w obronie rywala i zmierzony wpływ (mecze rywala bez nich) */
   oppMissing: { athleteId?: string; name: string; status: string; min: number; samePos: boolean; nWithout: number; effect: number | null }[];
 }
@@ -307,10 +312,24 @@ export function projectPlayer(ctx: LeagueContext, athleteId: string, g: PlayerGa
       oppRoster.set(r.athlete_id, e);
     }
   }
-  const candidates = [...oppRoster.entries()].filter(([id, e]) => e.pos === pos && e.mins.length >= 3 && (outOpp.get(id)?.pOut ?? 0) < 0.5);
+  // tylko realni gracze rotacji (≥ 15 min na mecz) — rezerwowy grający 3 minuty nikogo nie kryje
+  const candidates = [...oppRoster.entries()].filter(([id, e]) => e.pos === pos && e.mins.length >= 3 && mean(e.mins) >= 15 && (outOpp.get(id)?.pOut ?? 0) < 0.5);
   const def = candidates.sort((a, b) => mean(b[1].mins) - mean(a[1].mins))[0];
   const likelyDefender = def
-    ? { name: def[1].name, min: mean(def[1].mins), stl: def[1].stl / def[1].mins.length, blk: def[1].blk / def[1].mins.length, pf: def[1].pf / def[1].mins.length, games: def[1].mins.length, pos }
+    ? (() => {
+        const e = def[1];
+        const totMin = e.mins.reduce((a, b) => a + b, 0) || 1;
+        const stl36 = (36 * e.stl) / totMin, blk36 = (36 * e.blk) / totMin;
+        const lg = ctx.posRate[pos];
+        // ściągnięte do średniej ligi przy małej liczbie minut (≈ 300 minut „wagi” średniej)
+        const shrink = totMin / (totMin + 300);
+        const stlIdx = lg.stl > 0 ? 1 + (stl36 / (36 * lg.stl) - 1) * shrink : 1, blkIdx = lg.blk > 0 ? 1 + (blk36 / (36 * lg.blk) - 1) * shrink : 1;
+        const idx = (stlIdx + blkIdx) / 2;
+        return {
+          name: e.name, min: mean(e.mins), stl: e.stl / e.mins.length, blk: e.blk / e.mins.length, pf: e.pf / e.mins.length, games: e.mins.length, pos,
+          stl36, blk36, stlIdx, blkIdx, rating: (idx >= 1.25 ? "mocny" : idx <= 0.8 ? "słaby" : "przeciętny") as "mocny" | "przeciętny" | "słaby",
+        };
+      })()
     : null;
   const oppMissing: PlayerProjection["oppMissing"] = [];
   const allowedPerMin = (gids: Set<string> | null) => {

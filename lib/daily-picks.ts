@@ -7,14 +7,21 @@ import { buildDailyCoupons, couponCandidates } from "./coupons";
 import { getDb } from "./db";
 import type { BetEval } from "./engine";
 
-export type SetKind = "typy" | "kupon-bezpieczny" | "kupon-sredni" | "kupon-odwazny";
-export const SET_TITLE: Record<SetKind, string> = {
+export type SetKind = "typy" | `kupon-${string}`;
+export const SET_TITLE: Record<string, string> = {
   typy: "Typy dnia",
+  "kupon-pewniaczek": "Pewniaczek (~3)",
+  "kupon-zloty": "Złoty środek (~4)",
+  "kupon-petarda": "Petarda (~5)",
+  // starsze zestawy w archiwum
   "kupon-bezpieczny": "Kupon bezpieczniejszy (2,5–4)",
   "kupon-sredni": "Kupon średni (6–8)",
   "kupon-odwazny": "Kupon odważny (~10)",
 };
-export const SET_ORDER: SetKind[] = ["typy", "kupon-bezpieczny", "kupon-sredni", "kupon-odwazny"];
+/** zestawy zapisywane od teraz */
+export const SET_ORDER: SetKind[] = ["typy", "kupon-pewniaczek", "kupon-zloty", "kupon-petarda"];
+/** kolejność wyświetlania (także starsze rodzaje) */
+export const SET_DISPLAY: string[] = [...SET_ORDER, "kupon-bezpieczny", "kupon-sredni", "kupon-odwazny"];
 
 export interface DailySet {
   day: string;

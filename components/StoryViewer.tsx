@@ -374,7 +374,7 @@ function slides(d: StoryData): Slide[] {
                 <div style={{ display: "flex", alignItems: "center", gap: 8, borderTop: "1px solid #eee", marginTop: 10, paddingTop: 8 }}>
                   <span style={{ ...mono, fontSize: 7.5, color: C.mute }}>NAJPEWNIEJ KRYJE:</span>
                   <span style={{ ...head, fontSize: 16 }}>{b.assessment.stats.likelyDefender.name}</span>
-                  <span style={{ ...mono, fontSize: 7.5, color: C.mute }}>{n1(b.assessment.stats.likelyDefender.stl)} PRZ · {n1(b.assessment.stats.likelyDefender.blk)} BL</span>
+                  <span style={{ ...mono, fontSize: 7.5, color: b.assessment.stats.likelyDefender.rating === "mocny" ? C.red : b.assessment.stats.likelyDefender.rating === "słaby" ? C.green : C.mute }}>{(b.assessment.stats.likelyDefender.rating ?? "przeciętny").toUpperCase()} OBROŃCA</span>
                 </div>
               )}
             </Card>

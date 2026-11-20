@@ -366,9 +366,8 @@ export function assessPlayer(x: AssessInput): Assessment {
   }
 
   // rynek i kurs
-  if (x.marketProb !== null && Math.abs(x.rawProb - x.marketProb) > 0.12)
-    risk("istotne", `Model (${pct(x.rawProb)}) i rynek (${pct(x.marketProb)}) mocno się różnią — rynek może znać informacje, których model nie ma.`);
-  else if (x.marketProb !== null && Math.abs(x.rawProb - x.marketProb) <= 0.05 && x.ev > 0) pros.push("Model i rynek oceniają szanse podobnie — przewaga wynika z kursu, a nie z odważnej prognozy.");
+  // Różnica model–rynek nie jest wadą zakładu: skalibrowana szansa i tak łączy oba źródła (waga z backtestu).
+  if (x.marketProb !== null && Math.abs(x.rawProb - x.marketProb) <= 0.05 && x.ev > 0) pros.push("Model i rynek oceniają szanse podobnie — przewaga wynika z kursu, a nie z odważnej prognozy.");
   if (x.lineMovedAgainst) risk("drobne", "Linia przesunęła się od otwarcia w niekorzystną stronę.");
   if (x.manualPrice) risk("drobne", `Kurs wpisany ręcznie ${x.manualPrice.ageMin < 60 ? `${Math.round(x.manualPrice.ageMin)} min` : `${f1(x.manualPrice.ageMin / 60)} h`} temu — niezweryfikowany, sprawdź przed zagraniem.`);
   else if (x.staleMin !== null && x.staleMin > 60) risk("drobne", `Kurs pobrany ${f1(x.staleMin / 60)} h temu — mógł się zmienić.`);
@@ -465,8 +464,6 @@ export function assessGame(x: GameAssessInput): Assessment {
   const pros: string[] = [];
   const risks: Risk[] = [];
   if (!x.marketProven.proven) risks.push({ severity: "istotne", text: `Model meczowy nie był w backteście lepszy od rynku (${x.marketProven.detail}).` });
-  if (x.marketProb !== null && Math.abs(x.rawProb - x.marketProb) > 0.1)
-    risks.push({ severity: "istotne", text: `Model (${pct(x.rawProb)}) i rynek (${pct(x.marketProb)}) mocno się różnią — model drużynowy nie widzi wszystkich zmian w składach.` });
   for (const t of x.injuryNotes) risks.push({ severity: "drobne", text: t });
   for (const t of x.restNotes) risks.push({ severity: "drobne", text: t });
   if (x.manualPrice) risks.push({ severity: "drobne", text: "Kurs wpisany ręcznie — niezweryfikowany." });

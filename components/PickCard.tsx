@@ -3,9 +3,8 @@ import Link from "next/link";
 import { useState } from "react";
 import type { Category, Severity } from "@/lib/assess";
 import type { BetEval } from "@/lib/engine";
-import { ago, dateTime, dec, num, pct, pp, signedPct, tipTime } from "@/lib/format";
+import { ago, dateTime, dec, num, pct, signedPct, tipTime } from "@/lib/format";
 import { CATEGORY } from "@/lib/categories";
-import { ProjectionExplain } from "./ProjectionExplain";
 import { Term } from "./Term";
 
 export { CATEGORY };
@@ -145,9 +144,6 @@ export function PickCard({ b }: { b: BetEval }) {
         ) : <p className="text-ink-3">Model nie znalazł istotnych argumentów przeciw.</p>}
       </Section>
 
-      <Section title="Szczegółowa analiza statystyczna">
-        <Details b={b} />
-      </Section>
 
       {b.alternatives && b.alternatives.length > 1 && (
         <Section title="Wybór linii — szansa a kurs" count={b.alternatives.length}>
@@ -159,91 +155,6 @@ export function PickCard({ b }: { b: BetEval }) {
         <OddsCompare b={b} />
       </Section>
     </article>
-  );
-}
-
-function Row({ k, v, term }: { k: string; v: React.ReactNode; term?: string }) {
-  return (
-    <div className="flex justify-between gap-3 py-0.5">
-      <span className="text-ink-3">{term ? <Term k={term}>{k}</Term> : k}</span>
-      <span className="num text-right font-semibold">{v}</span>
-    </div>
-  );
-}
-
-function Details({ b }: { b: BetEval }) {
-  const a = b.assessment;
-  const s = a.stats;
-  return (
-    <div className="space-y-5">
-    {s?.explain && (
-      <div>
-        <div className="label mb-2">Skąd ta projekcja?</div>
-        <ProjectionExplain e={s.explain} line={b.line} unit={b.marketLabel.toLowerCase()} estimate={s.estimate} />
-      </div>
-    )}
-    <div className="grid gap-5 md:grid-cols-2">
-      <div>
-        <div className="label mb-1">Model</div>
-        <Row k="Prawdopodobieństwo modelu (po kalibracji)" v={pct(b.modelProb, 1)} term="prob" />
-        <Row k="Surowy model (przed kalibracją)" v={pct(b.rawProb, 1)} term="calibration" />
-        <Row k="Rynek bez marży" v={pct(b.marketProb, 1)} term="novig" />
-        <Row k="Prawdopodobieństwo z kursu" v={pct(b.impliedProb, 1)} term="implied" />
-        <Row k="Przewaga (EDGE)" v={pp(b.edge)} term="edge" />
-        <Row k="Kurs sprawiedliwy" v={dec(b.fairOdds)} term="fair" />
-        <Row k="¼ Kelly" v={pct(b.kellyQuarter, 1)} term="kelly" />
-        {b.projection && <Row k="Projekcja (80% wyników)" v={`${num(b.projection.mean)} (${num(b.projection.p10, 0)}–${num(b.projection.p90, 0)})`} />}
-        <p className="mt-1 text-[11px] text-ink-3">Rynek: {b.marketProbSource}.</p>
-        <div className="label mb-1 mt-4">Jakość danych: {a.quality.score}/100</div>
-        {a.quality.factors.length ? (
-          <ul className="space-y-0.5 text-xs text-ink-2">{a.quality.factors.map((f) => <li key={f.text}>{f.delta ? `${f.delta} ` : ""}{f.text}</li>)}</ul>
-        ) : <p className="text-xs text-ink-3">Bez zastrzeżeń.</p>}
-      </div>
-      {s ? (
-        <div>
-          <div className="label mb-1">Forma</div>
-          <div className="overflow-x-auto">
-            <table className="num w-full text-xs">
-              <thead><tr className="text-left text-ink-3"><th className="py-1">Okres</th><th>Mecze</th><th>Średnia</th><th><Term k="hitrate">Linia</Term></th></tr></thead>
-              <tbody>
-                {s.windows.map((w) => (
-                  <tr key={w.label} className="border-t border-line"><td className="py-1">{w.label}</td><td>{w.n}</td><td>{num(w.avg)}</td><td>{w.n ? `${w.hits}/${w.n} (${pct(w.hitRate, 0)})` : "—"}</td></tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Row k="Mediana" v={num(s.median)} term="median" />
-          <Row k="Odchylenie standardowe" v={num(s.sd)} term="sd" />
-          <Row k="Trend (na mecz, 10 meczów)" v={`${s.trendPerGame >= 0 ? "+" : ""}${num(s.trendPerGame, 2)}`} term="trend" />
-          <Row k="Regularność" v={s.consistency} />
-          <div className="label mb-1 mt-4">Historia</div>
-          <Row k={`Przeciw ${s.matchup.opp} (ten i poprzedni sezon)`} v={s.vsOpp.length ? `${s.vsOpp.filter((v) => v.hit).length}/${s.vsOpp.length} · ${s.vsOpp.map((v) => v.value).join(", ")}` : "brak meczów"} />
-          <Row k="U siebie: po stronie zakładu / średnia" v={s.homeAway.home.n ? `${s.homeAway.home.hits}/${s.homeAway.home.n} · ${num(s.homeAway.home.avg)}` : "—"} />
-          <Row k="Na wyjeździe: po stronie zakładu / średnia" v={s.homeAway.away.n ? `${s.homeAway.away.hits}/${s.homeAway.away.n} · ${num(s.homeAway.away.avg)}` : "—"} />
-          <div className="label mb-1 mt-4">Rola i minuty</div>
-          <Row k="Minuty: 5 meczów / sezon" v={`${num(s.minutes.l5)} / ${num(s.minutes.season)}`} />
-          <Row k="Minuty w projekcji" v={`${num(s.minutes.projected)} ± ${num(s.minutes.sd)}`} />
-          <Row k="Usage: 5 meczów / sezon" v={`${num(s.usage.l5)}% / ${num(s.usage.season)}%`} term="usage" />
-          <Row k="Rzuty z gry: 5 meczów / sezon" v={`${num(s.shooting.fgaL5)} / ${num(s.shooting.fgaSeason)} (${pct(s.shooting.fgPctSeason)} celnych)`} />
-          <Row k="Próby za 3: 5 meczów / sezon" v={`${num(s.shooting.fg3aL5)} / ${num(s.shooting.fg3aSeason)}`} />
-          <Row k="Skuteczność za 3: 5 meczów / sezon" v={`${pct(s.shooting.fg3PctL5)} / ${pct(s.shooting.fg3PctSeason)}`} />
-          {s.context.roleChange && <p className="mt-1 text-xs text-warn">{s.context.roleChange}</p>}
-          <div className="label mb-1 mt-4">Rywal i kontekst</div>
-          <Row k={`Obrona ${s.matchup.opp}`} v={s.matchup.oppDrtg ? `${num(s.matchup.oppDrtg)} (#${s.matchup.oppDrtgRank} w lidze)` : "—"} term="drtg" />
-          <Row k="Obrona vs ta pozycja (na posiadanie)" v={signedPct(s.matchup.statFactor - 1, 0)} />
-          <Row k={`Skuteczność za 3 rywali ${s.matchup.opp}`} v={pct(s.matchup.opp3PctAllowed, 1)} />
-          <Row k="Tempo: rywal / przewidywane w meczu" v={`${num(s.matchup.oppPace)} / ${num(s.matchup.gamePace)}`} term="pace" />
-          <Row k="Gospodarz / gość" v={s.matchup.home ? "u siebie" : "na wyjeździe"} />
-          <Row k="Dni odpoczynku" v={s.matchup.restDays === null ? "—" : s.matchup.restDays === 0 ? "0 (back-to-back)" : s.matchup.restDays} term="b2b" />
-          <Row k="Ryzyko blowoutu (≥20 pkt)" v={pct(s.context.blowoutProb, 0)} term="blowout" />
-          <Row k="Status zawodnika" v={s.context.selfStatus ?? "brak zgłoszeń"} />
-          {s.context.teammatesOut.length > 0 && <Row k="Nieobecni / niepewni koledzy" v={s.context.teammatesOut.join(", ")} />}
-        </div>
-      ) : (
-        <div className="text-ink-3">Linia meczowa — szczegóły drużyn na stronie meczu. <Link className="text-accent" href={`/games/${b.gameId}`}>Otwórz mecz →</Link></div>
-      )}
-    </div>
-    </div>
   );
 }
 

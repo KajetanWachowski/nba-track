@@ -186,7 +186,7 @@ export function HBars({ items, max, format = (v) => v.toFixed(2) }: { items: { l
       {items.map((i) => (
         <div key={i.label} className="grid grid-cols-[minmax(0,8rem)_1fr_3.5rem] items-center gap-2 text-xs sm:grid-cols-[10rem_1fr_4rem]">
           <span className="truncate text-ink-2" title={i.note}>{i.label}</span>
-          <div className="h-4 rounded bg-surface-2"><div className="h-4 rounded" style={{ width: `${Math.max(2, (i.value / m) * 100)}%`, background: FILL[i.tone] }} /></div>
+          <div className="h-4 rounded bg-surface-2"><div className="h-4 rounded" style={{ width: `${Math.min(100, Math.max(2, (i.value / m) * 100))}%`, background: FILL[i.tone] }} /></div>
           <span className={`num text-right font-bold ${TEXT[i.tone]}`}>{format(i.value)}</span>
         </div>
       ))}

@@ -13,6 +13,7 @@ import { shortDate, tipTime } from "@/lib/format";
 import { buildNarrative } from "@/lib/narrative";
 import { loadSlate } from "@/lib/page-data";
 import { findArchivedBet } from "@/lib/daily-picks";
+import { defenderImpact } from "@/lib/defender";
 
 export const dynamic = "force-dynamic";
 
@@ -64,7 +65,7 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
       {archived && (
         <Notice tone="neutral">
           Mecz już się rozpoczął — to <b>zapis analizy sprzed meczu</b> (stan z {new Date(archived.savedAt).toLocaleString("pl-PL", { timeZone: "Europe/Warsaw", dateStyle: "short", timeStyle: "short" })}).
-          Wynik na żywo i rozliczenie znajdziesz w zakładce <Link href="/wyniki-typow" className="text-accent">Wyniki typów</Link>.
+          Wynik na żywo i rozliczenie znajdziesz w zakładce <Link href="/kupony#wyniki" className="text-accent">Kupony i wyniki</Link>.
         </Notice>
       )}
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -206,31 +207,47 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
           </ChartCard>
         )}
 
-        {s && (s.likelyDefender || (s.oppMissing?.length ?? 0) > 0) && (
-          <ChartCard title={`Obrona ${b.oppAbbr}`} sub="Bezpośredni rywal to przybliżenie: zawodnik rywala z najwięcej minut na tej samej pozycji. Publiczne dane nie mówią, kto kogo kryje.">
-            {s.likelyDefender && (
-              <div className="grid grid-cols-4 gap-2 text-center">
-                <div className="col-span-4 text-left text-sm font-bold sm:col-span-1">{s.likelyDefender.name}</div>
-                {[["min", s.likelyDefender.min], ["przechwyty", s.likelyDefender.stl], ["bloki", s.likelyDefender.blk]].map(([l, v]) => (
-                  <div key={l as string} className="rounded-lg bg-surface-2 p-2"><div className="num text-lg font-black">{(v as number).toFixed(1)}</div><div className="text-[11px] text-ink-3">{l} / mecz</div></div>
-                ))}
-              </div>
-            )}
-            {(s.oppMissing ?? []).length > 0 && (
-              <ul className="mt-3 space-y-1 text-sm text-ink-2">
-                {s.oppMissing!.map((m) => {
-                  const t: Tone = m.effect === null || Math.abs(m.effect - 1) < 0.03 ? "neutral" : (m.effect > 1) === over ? "pos" : "neg";
-                  return (
-                    <li key={m.name}>
-                      <b>{m.name}</b> ({m.status}) nie zagra —{" "}
-                      {m.effect === null ? "za mało meczów bez niego, żeby policzyć wpływ." : <span className={toneText[t]}>rywale tej pozycji zdobywali bez niego {m.effect >= 1 ? "+" : "−"}{Math.abs((m.effect - 1) * 100).toFixed(0)}% na minutę ({m.nWithout} mecze)</span>}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </ChartCard>
-        )}
+        {s && (() => {
+          const d = s.likelyDefender && s.likelyDefender.stl36 !== undefined ? s.likelyDefender : null;
+          const di = d ? defenderImpact(d, b.market, b.side) : null;
+          const missing = (s.oppMissing ?? []).filter((m) => m.effect !== null && Math.abs(m.effect - 1) >= 0.02);
+          if (!di && !missing.length) return null;
+          const idxTone = (x: number): Tone => (x >= 1.25 ? "neg" : x <= 0.8 ? "pos" : "warn");
+          return (
+            <ChartCard title={`Obrona ${b.oppAbbr}`} sub="Krycie 1 na 1 nie jest publiczne — prawdopodobny obrońca to gracz rywala z najwięcej minut na tej samej pozycji.">
+              {d && di && (
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-bold">{d.name}</span>
+                    <span className={`rounded-md px-2 py-0.5 text-[11px] font-bold ${di.tone === "pos" ? "bg-pos-soft text-pos" : di.tone === "neg" ? "bg-neg-soft text-neg" : "bg-surface-2 text-ink-2"}`}>{di.verdict}</span>
+                    <span className="text-xs text-ink-3">{d.min.toFixed(1)} min / mecz</span>
+                  </div>
+                  <div className="mt-2">
+                    <HBars max={2} format={(v) => `${v >= 1 ? "+" : "−"}${Math.round(Math.abs(v - 1) * 100)}%`}
+                      items={[
+                        { label: `Przechwyty (${d.stl36.toFixed(1)}/36 min)`, value: d.stlIdx, tone: idxTone(d.stlIdx) },
+                        { label: `Bloki (${d.blk36.toFixed(1)}/36 min)`, value: d.blkIdx, tone: idxTone(d.blkIdx) },
+                      ]} />
+                    <p className="mt-1 text-[11px] text-ink-3">Względem średniej ligi dla tej pozycji (środek paska = średnio).</p>
+                  </div>
+                  <p className={`mt-2 text-sm ${toneText[di.tone]}`}>{di.text}</p>
+                </div>
+              )}
+              {missing.length > 0 && (
+                <ul className="mt-3 space-y-1 text-sm text-ink-2">
+                  {missing.map((m) => {
+                    const t: Tone = (m.effect! > 1) === over ? "pos" : "neg";
+                    return (
+                      <li key={m.name}>
+                        <b>{m.name}</b> ({m.status}) nie zagra — <span className={toneText[t]}>w {m.nWithout} meczach bez niego rywale tej pozycji zdobywali {m.effect! >= 1 ? "+" : "−"}{Math.abs((m.effect! - 1) * 100).toFixed(0)}% na minutę</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </ChartCard>
+          );
+        })()}
       </div>
 
       <p className="text-xs text-ink-3">

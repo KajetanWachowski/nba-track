@@ -5,7 +5,7 @@
 import { statOf } from "./assess";
 import { getDb } from "./db";
 import type { BetEval } from "./engine";
-import { listDailySets, SET_ORDER, type DailySet, type SetKind } from "./daily-picks";
+import { listDailySets, SET_DISPLAY, type DailySet, type SetKind } from "./daily-picks";
 import type { PlayerMarket } from "./markets";
 import { fetchBoxScore, fetchScoreboard, type BoxPlayer } from "./providers/espn";
 
@@ -131,7 +131,7 @@ export async function dailyResults(limitDays = 14): Promise<SetResult[]> {
       locked: !!set.lockedAt || (set.legs.length > 0 && Math.min(...set.legs.map((l) => Date.parse(l.tipoff))) <= Date.now()),
     });
   }
-  return out.sort((a, b) => (a.set.day === b.set.day ? SET_ORDER.indexOf(a.set.kind) - SET_ORDER.indexOf(b.set.kind) : a.set.day < b.set.day ? 1 : -1));
+  return out.sort((a, b) => (a.set.day === b.set.day ? SET_DISPLAY.indexOf(a.set.kind) - SET_DISPLAY.indexOf(b.set.kind) : a.set.day < b.set.day ? 1 : -1));
 }
 
 /** Podsumowanie skuteczności zamkniętych zestawów i pojedynczych typów dnia. */
