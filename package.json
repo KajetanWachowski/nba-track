@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kajetanwachowski/nba-track.git"
+  },
   "engines": {
     "node": ">=22.13"
   },
@@ -11,6 +15,7 @@
     "build": "next build",
     "start": "next start",
     "app": "next build && next start",
+    "serve": "node scripts/run.mjs",
     "setup": "tsx scripts/setup.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

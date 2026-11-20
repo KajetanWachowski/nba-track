@@ -20,7 +20,7 @@ Wszystkie liczby pochodzą z prawdziwych danych (ESPN, kursy bukmacherów) — n
 5. [Na telefonie](#5-na-telefonie)
 6. [Kursy polskich bukmacherów (opcjonalnie)](#6-kursy-polskich-bukmacherów-opcjonalnie)
 7. [Codzienne używanie](#7-codzienne-używanie)
-8. [Aktualizacja do nowej wersji](#8-aktualizacja-do-nowej-wersji)
+8. [Aktualizacje (automatyczne)](#8-aktualizacje-automatyczne)
 9. [Problemy i rozwiązania](#9-problemy-i-rozwiązania)
 10. [Bezpieczeństwo i prywatność](#10-bezpieczeństwo-i-prywatność)
 
@@ -31,6 +31,7 @@ Wszystkie liczby pochodzą z prawdziwych danych (ESPN, kursy bukmacherów) — n
 - Komputer z **Windows 10/11**, **macOS** albo **Linuxem** (aplikacja działa na komputerze, telefon tylko ją otwiera).
 - Ok. **1 GB wolnego miejsca** i internet.
 - **Node.js w wersji 22.13 lub nowszej** — darmowy program, instalacja niżej.
+- **Git** — potrzebny do **automatycznych aktualizacji** (darmowy: <https://git-scm.com>; na Macu instaluje się sam przy pierwszym użyciu).
 - Klucze do API **nie są potrzebne**. Opcjonalny klucz OddsPapi dodaje kursy Superbetu i Fortuny (rozdział 6).
 
 ---
@@ -46,6 +47,10 @@ Wszystkie liczby pochodzą z prawdziwych danych (ESPN, kursy bukmacherów) — n
    node -v
    ```
    Powinno się pokazać np. `v22.13.0` albo wyżej (`v24…` też jest OK).
+
+### Krok 1b — zainstaluj Git (dla automatycznych aktualizacji)
+
+Pobierz z <https://git-scm.com/download/win> i zainstaluj, klikając **Next** (ustawienia domyślne).
 
 ### Krok 2 — pobierz aplikację
 
@@ -118,26 +123,31 @@ Na końcu pojawi się **„Wszystko gotowe”**.
 
 ### Krok 2 — uruchom aplikację
 
-```bash
-npm run app
-```
+**Najprościej — dwuklik:**
+- **Windows:** plik **`Uruchom NBA EDGE.bat`** w folderze aplikacji.
+- **Mac:** plik **`Uruchom NBA EDGE.command`** (za pierwszym razem: prawy klik → **Otwórz** → **Otwórz**,
+  bo macOS pyta o pliki z internetu).
 
-Pierwszy raz trwa to ok. minuty (budowanie). Gdy zobaczysz `✓ Ready`, otwórz w przeglądarce:
+Albo w terminalu: `npm run serve`.
+
+Starter sam doinstaluje brakujące rzeczy, sprawdzi aktualizacje, zbuduje i uruchomi aplikację
+(pierwszy raz ok. minuty). Gdy zobaczysz **„Aplikacja działa: http://localhost:3000”**, otwórz w przeglądarce:
 
 **<http://localhost:3000>**
 
 Zacznij od zakładki **„Kupony i wyniki”**.
 
-**Ważne:** okno PowerShella/Terminala musi zostać otwarte — to jest „serwer” aplikacji. Zamknięcie okna
-(albo `Ctrl + C`) wyłącza aplikację. Następnym razem wystarczy `npm start` (bez ponownego budowania),
-a po aktualizacji — znowu `npm run app`.
+**Ważne:** okno startera musi zostać otwarte — to jest „serwer” aplikacji. Zamknięcie okna
+(albo `Ctrl + C`) wyłącza aplikację. Następnym razem znowu dwuklik na „Uruchom NBA EDGE”.
+
+> Bez automatycznych aktualizacji można też ręcznie: `npm run app` (buduje i uruchamia) albo `npm start` (już zbudowana).
 
 ---
 
 ## 5. Na telefonie
 
 Telefon nie instaluje aplikacji — otwiera tę działającą na Twoim komputerze. Komputer musi być włączony
-i mieć uruchomione `npm start` / `npm run app`.
+i mieć uruchomioną aplikację („Uruchom NBA EDGE”).
 
 ### W domu (to samo Wi-Fi)
 
@@ -184,7 +194,7 @@ ale kurs trzeba sprawdzić u swojego bukmachera. Z kluczem OddsPapi zobaczysz ku
    ```
    ODDSPAPI_KEY=tu-wklej-swoj-klucz
    ```
-3. Zapisz plik i uruchom aplikację ponownie (`Ctrl + C`, potem `npm start`).
+3. Zapisz plik i uruchom aplikację ponownie (zamknij okno startera i znowu „Uruchom NBA EDGE”).
 4. W aplikacji: zakładka **„Polskie kursy” → „Pobierz kursy”**. Raport pod przyciskiem pokazuje, co przyszło od każdego bukmachera.
 
 Wskazówki:
@@ -196,7 +206,7 @@ Wskazówki:
 
 ## 7. Codzienne używanie
 
-- **Uruchom** aplikację (`npm start`) i otwórz <http://localhost:3000> (albo ikonę na telefonie).
+- **Uruchom** aplikację dwuklikiem na „Uruchom NBA EDGE” i otwórz <http://localhost:3000> (albo ikonę na telefonie).
 - **Kupony i wyniki** — typy dnia i trzy kupony na dziś. Kupony zapisują się przed meczami i po rozpoczęciu
   pierwszego meczu są **zamrożone**; niżej, w sekcji **Wyniki**, widać na żywo stan każdego typu
   (np. „32 / 35.5 · 3. kwarta”) i rozliczenie: ✓ weszło, ✗ nie weszło, zwrot (zawodnik nie zagrał).
@@ -207,21 +217,25 @@ Wskazówki:
 
 ---
 
-## 8. Aktualizacja do nowej wersji
+## 8. Aktualizacje (automatyczne)
 
-**Git:**
-```bash
-git pull
-npm install
-npm run app
-```
+Jeśli uruchamiasz aplikację przez **„Uruchom NBA EDGE”** (albo `npm run serve`), aktualizuje się **sama**:
 
-**ZIP:** pobierz nowy ZIP i rozpakuj go w miejsce starego folderu, ale **zachowaj** z poprzedniej wersji
-plik **`.env.local`** i folder **`data`** (Twoje ustawienia, historia i wyniki). Potem `npm install` i `npm run app`.
+- przy każdym uruchomieniu sprawdza, czy na GitHubie jest nowa wersja, i od razu ją instaluje;
+- w trakcie działania sprawdza co 3 godziny, a nową wersję instaluje **tylko w dzień (10:00–20:00)** —
+  mecze NBA są w Polsce w nocy, a instalacja to 1–2 minuty przerwy;
+- jeśli nowa wersja z jakiegoś powodu się nie uruchomi, aplikacja **sama wraca do poprzedniej** i działa dalej;
+- **Twoje ustawienia (`.env.local`) i dane (folder `data`) nie są ruszane.**
+
+Aktualną wersję i datę ostatniego sprawdzenia widać w **Ustawieniach → Wersja i aktualizacje**.
+
+Szczegóły:
+- Aplikacja pobrana jako **ZIP** sama podłączy się do GitHuba przy pierwszym uruchomieniu (wymaga zainstalowanego Gita).
+- Jeśli zmienisz ręcznie pliki aplikacji, automatyczna aktualizacja się wstrzyma (żeby nie skasować Twoich zmian).
+- Wyłączenie: dopisz `AUTO_UPDATE=0` w `.env.local`. Częstotliwość: `UPDATE_CHECK_HOURS=6`.
+- Ręcznie: `git pull`, `npm install`, `npm run app`.
 
 Raz na jakiś czas warto odświeżyć model: `npm run backtest` (kilka minut; aplikacja może w tym czasie działać).
-
----
 
 ## 9. Problemy i rozwiązania
 
@@ -230,11 +244,13 @@ Raz na jakiś czas warto odświeżyć model: `npm run backtest` (kilka minut; ap
 | `npm : … running scripts is disabled` (Windows) | Używaj `npm.cmd …` albo raz: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`. |
 | `'node' is not recognized` / `command not found: node` | Node.js nie jest zainstalowany albo trzeba otworzyć nowe okno PowerShella/Terminala po instalacji. |
 | Błąd o `node:sqlite` / „SQLite” | Za stara wersja Node.js — zainstaluj aktualną LTS (min. 22.13). Ostrzeżenie *„SQLite is an experimental feature”* jest normalne. |
-| `Port 3000 is in use` / `EADDRINUSE` | Aplikacja już działa w innym oknie — zamknij je albo uruchom na innym porcie: `npm start -- -p 3001`. |
+| `Port 3000 is in use` / `EADDRINUSE` | Aplikacja już działa w innym oknie — zamknij je albo ustaw inny port: dopisz `PORT=3001` w `.env.local` (wtedy adres to `http://localhost:3001`). |
 | Strona: „Pierwsze uruchomienie…”, brak typów | Dane wciąż się przygotowują (15–30 min) albo uruchom `npm run setup`. |
 | „System nie znalazł zakładów Najlepsze/Dobre” | To normalne w niektóre dni — model nie poleca na siłę. Kupony i typy dnia nadal są w „Kupony i wyniki”. |
 | Telefon nie otwiera strony | Ten sam Wi-Fi? Dobry adres (`http://`, a nie `https://`, i `:3000` na końcu)? Zapora — rozdział 5. Komputer nie śpi? |
 | „Superbet: brak kursów” | Zobacz raport na stronie „Polskie kursy” — mówi, czy OddsPapi przysłało kursy. Czasem trzeba spróbować za kilkanaście minut; można też wpisać kurs ręcznie. |
+| Starter pisze „Nie mogę sprawdzić aktualizacji” | Brak internetu albo dostępu do repozytorium. Aplikacja i tak działa — zaktualizuje się, gdy połączenie wróci. Jeśli repozytorium jest prywatne, Git poprosi o zalogowanie do GitHuba (konto musi mieć dostęp). |
+| Mac: „nie można otworzyć, pochodzi od niezidentyfikowanego dewelopera” | Prawy klik na „Uruchom NBA EDGE.command” → **Otwórz** → **Otwórz**. Albo w Terminalu: `npm run serve`. |
 | Chcę zacząć od zera | Zamknij aplikację, usuń folder `data` i uruchom `npm run setup`. |
 
 ---

@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { ActionButton } from "@/components/ActionButton";
 import { Term } from "@/components/Term";
 import { Card, PageHeader } from "@/components/ui";
@@ -44,6 +46,21 @@ export default async function Settings() {
     <>
       <PageHeader eyebrow={`Sezon ${seasonLabel()} · model ${config.modelVersion}`} title="Ustawienia" />
       <div className="grid gap-4 xl:grid-cols-2">
+        <Card title="Wersja i aktualizacje">
+          {(() => {
+            let st: { version?: string | null; versionDate?: string | null; autoUpdate?: boolean; checkedAt?: number; lastUpdateAt?: number; lastError?: string | null } | null = null;
+            try { st = JSON.parse(fs.readFileSync(path.join(config.dataDir, "update-status.json"), "utf8")); } catch { st = null; }
+            if (!st) return <p className="text-sm text-ink-3">Aplikacja uruchomiona bez startera — aktualizacje automatyczne są wyłączone. Uruchamiaj ją przez „Uruchom NBA EDGE” albo <code>npm run serve</code>, żeby sama się aktualizowała.</p>;
+            return (
+              <div className="space-y-1 text-sm">
+                <div>Wersja: <b className="num">{st.version ?? "—"}</b>{st.versionDate ? ` z ${new Date(st.versionDate).toLocaleDateString("pl-PL")}` : ""}</div>
+                <div>Aktualizacje automatyczne: <b className={st.autoUpdate ? "text-pos" : "text-warn"}>{st.autoUpdate ? "włączone" : "wyłączone"}</b> (instalowane w dzień, 10:00–20:00)</div>
+                <div className="text-ink-3">Ostatnie sprawdzenie: {st.checkedAt ? ago(st.checkedAt) : "—"}{st.lastUpdateAt ? ` · ostatnia aktualizacja: ${ago(st.lastUpdateAt)}` : ""}</div>
+                {st.lastError && <div className="text-warn">Uwaga: {st.lastError}</div>}
+              </div>
+            );
+          })()}
+        </Card>
         <Card title="Polscy bukmacherzy (Superbet · Betclic · Betfan)">
           <TaxToggle enabled={tax.enabled} exempt={tax.exempt} books={PL_BOOKS} rate={tax.rate} />
           <p className="mt-2 text-xs text-ink-3">
