@@ -10,6 +10,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "app": "next build && next start",
+    "setup": "tsx scripts/setup.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "sync": "tsx scripts/sync.ts",

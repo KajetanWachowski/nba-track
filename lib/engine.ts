@@ -24,7 +24,7 @@ import { expectedValue, fairOdds, impliedProb, kelly, noVig, overround } from ".
 import { easternDay, fetchInjuries, fetchRoster, fetchSeasonLog, type Injury } from "./providers/espn";
 import { eventToOffers, fetchEventProps, fetchGameOdds, matchEvent, normName, oddsApiEnabled, type GameRef, type Offer } from "./providers/oddsapi";
 import { getGameLine, getGamesByDay, getPropLines, getTeams, type GameRow, type TeamRow } from "./store";
-import { syncSlate } from "./sync";
+import { syncSlate, syncTeams } from "./sync";
 import { assessGame, assessPlayer, type Assessment } from "./assess";
 import { getMeta, setMeta } from "./db";
 import { effectivePrice, getTaxSettings, isPolishBook } from "./books";
@@ -139,6 +139,8 @@ async function runSlate(day: string, force: boolean): Promise<SlateAnalysis> {
   const warnings: string[] = [];
   const sources: SlateAnalysis["sources"] = [];
 
+  // pierwsze uruchomienie: bez listy drużyn mecze nie mają nazw ani logo
+  if (getTeams().size === 0) await syncTeams().catch(() => undefined);
   try {
     const s = await syncSlate(day, force);
     sources.push({ name: "ESPN: mecze + kursy DraftKings", fetchedAt: Math.min(s.scoreboardFetchedAt, s.propsFetchedAt), ok: !s.stale, note: s.stale ? "błąd sieci — pokazuję zapisane dane" : undefined });
@@ -177,9 +179,16 @@ async function runSlate(day: string, force: boolean): Promise<SlateAnalysis> {
         ? "nie uruchomiono jeszcze backtestu"
         : `log-loss modelu ${m.logLossCal.toFixed(4)} vs rynku ${m.logLossMarket.toFixed(4)} poza próbą, n=${m.n}`,
     };
-    if (!proven) warnings.push(`${k === "player" ? "Zakłady na zawodników" : "Linie meczowe (zwycięzca, handicap, suma)"}: brak rekomendacji — ${evidence[k].detail}${m ? "; model nie był tu lepszy od rynku" : ""}.`);
+    if (!proven && m) warnings.push(`${k === "player" ? "Zakłady na zawodników" : "Linie meczowe (zwycięzca, handicap, suma)"}: brak rekomendacji — ${evidence[k].detail}${m ? "; model nie był tu lepszy od rynku" : ""}.`);
   }
-  if (!cal.player.fittedAt) warnings.push("Prawdopodobieństwa nie są skalibrowane — uruchom backtest (Historia wyników → Uruchom backtest).");
+  if (!bt) {
+    const st = getMeta<{ phase: string; at: number }>("setup:status");
+    warnings.push(
+      st?.phase === "backtest"
+        ? "Pierwsze uruchomienie: historia sezonu pobrana, model jest teraz testowany na rozegranych meczach (zwykle 5–15 min). Rekomendacje pojawią się same — odśwież stronę za chwilę."
+        : "Pierwsze uruchomienie: aplikacja pobiera historię sezonu i uczy model (zwykle 15–30 min). Do tego czasu nie ma rekomendacji — pojawią się same. Szybciej: zamknij aplikację i uruchom w terminalu „npm run setup”.",
+    );
+  } else if (!cal.player.fittedAt) warnings.push("Prawdopodobieństwa nie są skalibrowane — uruchom backtest (Historia wyników → Uruchom backtest).");
 
   // ---- offers: DraftKings via ESPN always; other books via The Odds API when configured ----
   const offers: (Offer & { kind: BetEval["marketType"]; openLine: number | null; openPrice: number | null; sideCheck: string; seenAt?: number | null; source?: "api" | "manual" })[] = [];

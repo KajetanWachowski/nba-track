@@ -1,213 +1,254 @@
-# NBA EDGE — analityka NBA i wyszukiwarka value betów
+# NBA EDGE — kupony i analiza NBA
 
-Platforma, która pobiera rzeczywiste dane NBA i kursy bukmacherskie, szacuje prawdopodobieństwa
-zdarzeń własnym modelem statystycznym, porównuje je z prawdopodobieństwem z kursu (z usuniętą
-marżą) i pokazuje, gdzie kurs jest — według modelu — źle wyceniony. Każda liczba pochodzi z
-prawdziwego źródła; jeśli źródło nie odpowiada, aplikacja pokazuje ostatnią poprawną kopię
-oznaczoną jako nieaktualną albo komunikat o braku danych. Nic nie jest zmyślane.
+Aplikacja, która codziennie analizuje mecze NBA i proponuje **typy dnia** oraz **trzy kupony**
+(🛡️ Pewniaczek ~3, 🥇 Złoty środek ~4, 🧨 Petarda ~5). Do każdego typu pokazuje pełną analizę z wykresami:
+formę zawodnika, minuty, rywala, kontuzje i to, jak typ wypadał w przeszłości. Wyniki kuponów widać
+na żywo w trakcie meczów.
 
-> Prawdopodobieństwa są estymacjami z niepewnością, a nie gwarancjami. Patrz sekcja
-> **„Wyniki i uczciwa ocena”** — na dziś model nie wykazał przewagi, która pokonuje marżę.
+Wszystkie liczby pochodzą z prawdziwych danych (ESPN, kursy bukmacherów) — nic nie jest zmyślane.
 
-## Jak NBA EDGE ocenia zakłady (wersja 2)
+> **18+ · Graj odpowiedzialnie.** Prawdopodobieństwa to szacunki, nie gwarancje — nawet najlepszy kupon
+> czasem nie wchodzi. Stawiaj tylko tyle, ile możesz stracić. Pomoc: **801 889 880** (Telefon Zaufania
+> Uzależnień Behawioralnych).
 
-Najważniejsza jest **jakość i wiarygodność prognozy**, dopiero potem kurs. Samo dodatnie EV nigdy nie wystarcza.
+**Spis treści**
 
-Każdy zakład dostaje trzy niezależne oceny:
+1. [Co jest potrzebne](#1-co-jest-potrzebne)
+2. [Instalacja na komputerze (Windows)](#2-instalacja-na-komputerze-windows)
+3. [Instalacja na komputerze (Mac / Linux)](#3-instalacja-na-komputerze-mac--linux)
+4. [Pierwsze uruchomienie](#4-pierwsze-uruchomienie)
+5. [Na telefonie](#5-na-telefonie)
+6. [Kursy polskich bukmacherów (opcjonalnie)](#6-kursy-polskich-bukmacherów-opcjonalnie)
+7. [Codzienne używanie](#7-codzienne-używanie)
+8. [Aktualizacja do nowej wersji](#8-aktualizacja-do-nowej-wersji)
+9. [Problemy i rozwiązania](#9-problemy-i-rozwiązania)
+10. [Bezpieczeństwo i prywatność](#10-bezpieczeństwo-i-prywatność)
 
-| Ocena | Co mierzy |
-|---|---|
-| **Prawdopodobieństwo** | skalibrowana szansa realizacji z przedziałem niepewności |
-| **Jakość danych** (0–100) | liczba meczów, stabilność minut, zmiana roli, kontuzje, wiarygodność kursu, weryfikacja w backteście |
-| **Opłacalność** | EV i przewaga na kursie **Superbet** (gdy brak — najlepszy polski bukmacher) |
+---
 
-oraz listę **argumentów za** i **ryzyk** (krytyczne / istotne / drobne): forma z ostatnich 5 i 10 meczów,
-konflikt sezon vs ostatnie mecze, trend, nieregularność, zmiana minut i usage, powrót po absencji,
-liczba prób za 3 i skuteczność, obrona rywala na pozycji i na obwodzie, tempo, ryzyko blowoutu,
-back-to-back, status zawodnika i kolegów, rozbieżność model/rynek, ruch linii, wiek kursu.
+## 1. Co jest potrzebne
 
-Kategorie (progi w `lib/assess.ts → THRESHOLDS`):
+- Komputer z **Windows 10/11**, **macOS** albo **Linuxem** (aplikacja działa na komputerze, telefon tylko ją otwiera).
+- Ok. **1 GB wolnego miejsca** i internet.
+- **Node.js w wersji 22.13 lub nowszej** — darmowy program, instalacja niżej.
+- Klucze do API **nie są potrzebne**. Opcjonalny klucz OddsPapi dodaje kursy Superbetu i Fortuny (rozdział 6).
 
-- **Najlepsze** — p ≥ 58%, jakość ≥ 70, EV ≥ +2%, model co najmniej tak pewny jak rynek, ≤ 1 istotne ryzyko.
-- **Dobre** — p ≥ 53%, jakość ≥ 55, EV ≥ 0, ≤ 2 istotne ryzyka.
-- **Warte obserwacji** — blisko progu, brak kursu polskiego albo typ zakładu niezweryfikowany w backteście.
-- **Odrzucone** — każde ryzyko krytyczne (np. 0/5 ostatnich meczów po stronie zakładu, niepewny status) albo słabe parametry.
+---
 
-Najlepsze i Dobre wymagają: kursu polskiego bukmachera **oraz** tego, że dla danego typu zakładu skalibrowany
-model był w backteście lepszy od rynku (np. obecnie: zbiórki, asysty, trójki, Pkt+Zb, Zb+As — tak; punkty,
-PRA, Pkt+As i linie meczowe — nie). Preferowany zakres kursów 1.70–2.20 daje tylko niewielki bonus w rankingu.
+## 2. Instalacja na komputerze (Windows)
 
-Kursy: **Superbet → Betclic → Betfan → inni polscy** (Fortuna, STS, Forbet przez OddsPapi). Kursy USA
-(DraftKings) są wyłącznie punktem odniesienia i nigdy nie są traktowane jako kurs do zagrania w Polsce.
-Kursy wpisane ręcznie są oznaczone jako niezweryfikowane, z czasem wpisania.
+### Krok 1 — zainstaluj Node.js
 
-Model w wersji 2: trójki liczone jako **próby × skuteczność** (rozkład dwumianowy, skuteczność z rozkładu Beta,
-korekta na obronę obwodu rywala); **ryzyko blowoutu** z handicapu rynku zmienia minuty w symulacji
-(efekt zmierzony na meczach ligi: podstawowi grają krócej, rezerwowi dłużej).
+1. Wejdź na <https://nodejs.org> i pobierz wersję **LTS** (przycisk po lewej).
+2. Uruchom pobrany plik i klikaj **Next** (ustawienia domyślne są dobre).
+3. Sprawdź instalację: otwórz menu Start, wpisz **PowerShell**, uruchom i wpisz:
+   ```powershell
+   node -v
+   ```
+   Powinno się pokazać np. `v22.13.0` albo wyżej (`v24…` też jest OK).
 
-## Szybki start
+### Krok 2 — pobierz aplikację
+
+**Sposób A (najprostszy) — plik ZIP:**
+1. Na stronie projektu na GitHubie kliknij zielony przycisk **Code → Download ZIP**.
+2. Rozpakuj ZIP, np. do folderu `Dokumenty\nba-track` (prawy klik → *Wyodrębnij wszystkie*).
+
+**Sposób B — Git** (łatwiejsze aktualizacje):
+```powershell
+cd $HOME\Documents
+git clone https://github.com/kajetanwachowski/nba-track.git
+```
+
+### Krok 3 — zainstaluj aplikację
+
+1. Otwórz folder z aplikacją w Eksploratorze, kliknij w pasek adresu, wpisz `powershell` i naciśnij Enter
+   — otworzy się PowerShell od razu w tym folderze.
+2. Wpisz:
+   ```powershell
+   npm.cmd install
+   ```
+   (trwa 1–3 minuty; ostrzeżenia `npm warn` można zignorować).
+3. Skopiuj plik ustawień:
+   ```powershell
+   copy .env.example .env.local
+   ```
+
+> **Dlaczego `npm.cmd`, a nie `npm`?** W PowerShellu samo `npm` często kończy się błędem
+> *„running scripts is disabled on this system”*. `npm.cmd` działa zawsze. Możesz też raz wpisać
+> `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` (potwierdź `T`/`Y`) i potem używać zwykłego `npm`.
+
+Dalej przejdź do [rozdziału 4](#4-pierwsze-uruchomienie) (w komendach używaj `npm.cmd`).
+
+---
+
+## 3. Instalacja na komputerze (Mac / Linux)
+
+1. Zainstaluj Node.js 22.13+:
+   - **Mac:** pobierz wersję **LTS** z <https://nodejs.org> i zainstaluj, albo `brew install node`.
+   - **Linux:** np. przez <https://github.com/nvm-sh/nvm>: `nvm install --lts`.
+2. Sprawdź: `node -v` (ma być `v22.13` lub wyżej).
+3. Pobierz i zainstaluj aplikację w Terminalu:
+   ```bash
+   cd ~/Documents
+   git clone https://github.com/kajetanwachowski/nba-track.git
+   cd nba-track
+   npm install
+   cp .env.example .env.local
+   ```
+   (Bez Gita: *Code → Download ZIP* na GitHubie, rozpakuj i w Terminalu wejdź do folderu poleceniem `cd`.)
+
+---
+
+## 4. Pierwsze uruchomienie
+
+Wszystkie komendy wpisujesz **w folderze aplikacji** (Windows: `npm.cmd` zamiast `npm`).
+
+### Krok 1 — przygotuj dane (tylko raz, 10–30 minut)
 
 ```bash
+npm run setup
+```
+
+Aplikacja pobierze mecze i statystyki tego sezonu, a potem sprawdzi swój model na rozegranych meczach
+(tzw. backtest — dzięki niemu wie, jak bardzo może ufać swoim prognozom). Na ekranie widać postęp.
+Na końcu pojawi się **„Wszystko gotowe”**.
+
+> Możesz ten krok pominąć — aplikacja zrobi to sama w tle po pierwszym uruchomieniu. Wtedy przez pierwsze
+> 15–30 minut strona pokaże komunikat „Pierwsze uruchomienie…” i nie będzie jeszcze typów.
+
+### Krok 2 — uruchom aplikację
+
+```bash
+npm run app
+```
+
+Pierwszy raz trwa to ok. minuty (budowanie). Gdy zobaczysz `✓ Ready`, otwórz w przeglądarce:
+
+**<http://localhost:3000>**
+
+Zacznij od zakładki **„Kupony i wyniki”**.
+
+**Ważne:** okno PowerShella/Terminala musi zostać otwarte — to jest „serwer” aplikacji. Zamknięcie okna
+(albo `Ctrl + C`) wyłącza aplikację. Następnym razem wystarczy `npm start` (bez ponownego budowania),
+a po aktualizacji — znowu `npm run app`.
+
+---
+
+## 5. Na telefonie
+
+Telefon nie instaluje aplikacji — otwiera tę działającą na Twoim komputerze. Komputer musi być włączony
+i mieć uruchomione `npm start` / `npm run app`.
+
+### W domu (to samo Wi-Fi)
+
+1. **Sprawdź adres komputera w sieci:**
+   - po uruchomieniu aplikacji w oknie jest linia **`Network: http://192.168.x.x:3000`** — to ten adres;
+   - albo: **Windows** → w PowerShellu `ipconfig` → „Adres IPv4” przy karcie Wi-Fi;
+     **Mac** → *Ustawienia systemowe → Wi-Fi → Szczegóły → Adres IP*.
+2. Na telefonie (połączonym z **tym samym Wi-Fi**) wpisz w przeglądarce np. `http://192.168.1.23:3000`.
+3. **Windows zapyta o zaporę** przy pierwszym uruchomieniu — zaznacz **Sieci prywatne** i kliknij **Zezwól na dostęp**.
+   Jeśli okienko się nie pojawiło, a telefon nie może połączyć: *Zabezpieczenia Windows → Zapora i ochrona sieci →
+   Zezwalaj aplikacji przez zaporę* → zaznacz **Node.js** (sieć prywatna).
+   Mac: *Ustawienia systemowe → Sieć → Zapora* → zezwól na połączenia dla **node**.
+
+### Ikona na ekranie (jak aplikacja)
+
+- **iPhone (Safari):** przycisk **Udostępnij** (kwadrat ze strzałką) → **Do ekranu początkowego** → **Dodaj**.
+- **Android (Chrome):** menu **⋮** → **Dodaj do ekranu głównego** (albo **Zainstaluj aplikację**).
+
+Na ekranie pojawi się ikona **NBA EDGE**, a aplikacja otworzy się na pełnym ekranie od zakładki „Kupony i wyniki”.
+
+> Android przy adresie `http://192.168…` czasem doda zwykłą zakładkę zamiast pełnego ekranu — to normalne
+> (pełna „instalacja” wymaga adresu https, patrz niżej). Wszystko działa tak samo.
+
+### Poza domem (na danych komórkowych)
+
+Najprościej i bezpiecznie przez darmowy **Tailscale** (prywatna sieć tylko Twoich urządzeń):
+
+1. Załóż konto na <https://tailscale.com> i zainstaluj aplikację **na komputerze i na telefonie** (zaloguj się tym samym kontem).
+2. W aplikacji Tailscale na komputerze sprawdź jego adres (np. `100.101.102.103`).
+3. Na telefonie (z włączonym Tailscale) otwórz `http://100.101.102.103:3000`.
+
+**Nie wystawiaj aplikacji publicznie w internecie** (np. przez publiczne tunele): każdy z linkiem mógłby
+klikać „Pobierz kursy” i zużywać Twój limit OddsPapi.
+
+---
+
+## 6. Kursy polskich bukmacherów (opcjonalnie)
+
+Bez klucza aplikacja używa kursów **DraftKings** (USA) jako punktu odniesienia — typy i kupony działają,
+ale kurs trzeba sprawdzić u swojego bukmachera. Z kluczem OddsPapi zobaczysz kursy **Superbetu** (i Fortuny).
+
+1. Załóż **własne** konto na <https://oddspapi.io> (darmowy plan wystarczy na start) i skopiuj klucz API.
+2. Otwórz plik **`.env.local`** w folderze aplikacji (Notatnik / TextEdit) i wklej klucz:
+   ```
+   ODDSPAPI_KEY=tu-wklej-swoj-klucz
+   ```
+3. Zapisz plik i uruchom aplikację ponownie (`Ctrl + C`, potem `npm start`).
+4. W aplikacji: zakładka **„Polskie kursy” → „Pobierz kursy”**. Raport pod przyciskiem pokazuje, co przyszło od każdego bukmachera.
+
+Wskazówki:
+- Kursy pobierają się **tylko po kliknięciu** przycisku (oszczędza limit). Jedno pobranie ≈ 1 + liczba meczów zapytań.
+- Bukmacherów, których nie ma w OddsPapi (np. Betfan) albo w Twoim planie, możesz **wpisać ręcznie** na stronie „Polskie kursy”.
+- Podatek 12% od stawki można uwzględnić w **Ustawieniach**.
+
+---
+
+## 7. Codzienne używanie
+
+- **Uruchom** aplikację (`npm start`) i otwórz <http://localhost:3000> (albo ikonę na telefonie).
+- **Kupony i wyniki** — typy dnia i trzy kupony na dziś. Kupony zapisują się przed meczami i po rozpoczęciu
+  pierwszego meczu są **zamrożone**; niżej, w sekcji **Wyniki**, widać na żywo stan każdego typu
+  (np. „32 / 35.5 · 3. kwarta”) i rozliczenie: ✓ weszło, ✗ nie weszło, zwrot (zawodnik nie zagrał).
+- **Pełna analiza z wykresami** — przycisk przy każdym typie: forma, minuty, rywal, kontuzje, rozkład wyników, „Dlaczego ten typ?”.
+- **Historia typu ▶** — gotowe grafiki 1080×1920 (na stories) do pobrania jako PNG.
+- Najlepiej sprawdzić typy **ok. 30 minut przed meczem** — wtedy znane są składy i kontuzje.
+- Aplikacja co godzinę sama pobiera wyniki rozegranych meczów — nic nie musisz robić.
+
+---
+
+## 8. Aktualizacja do nowej wersji
+
+**Git:**
+```bash
+git pull
 npm install
-npm run sync        # sezon: terminarz, box score'y, linie meczowe, historyczne linie propsów (~10 s)
-npm run backtest -- --tune   # walk-forward backtest + kalibracja prawdopodobieństw (~2–4 min)
-npm run dev         # http://localhost:3000
+npm run app
 ```
 
-Wymagania: Node.js ≥ 22.13 (wbudowany `node:sqlite` — bez natywnych zależności).
-Opcjonalnie skopiuj `.env.example` do `.env.local` i ustaw `ODDS_API_KEY` (patrz niżej).
+**ZIP:** pobierz nowy ZIP i rozpakuj go w miejsce starego folderu, ale **zachowaj** z poprzedniej wersji
+plik **`.env.local`** i folder **`data`** (Twoje ustawienia, historia i wyniki). Potem `npm install` i `npm run app`.
 
-Inne skrypty: `npm test` (testy jednostkowe), `npm run settle` (rozliczenie zapisanych typów),
-`npm run build && npm start` (produkcja; serwer co godzinę sam synchronizuje zakończone mecze
-i rozlicza typy — wyłączysz to przez `NBA_EDGE_NO_BACKGROUND=1`).
+Raz na jakiś czas warto odświeżyć model: `npm run backtest` (kilka minut; aplikacja może w tym czasie działać).
 
-## Źródła danych (sprawdzone na żywo)
+---
 
-| Źródło | Co daje | Klucz |
-|---|---|---|
-| ESPN `site.api.espn.com` — scoreboard, summary, injuries, teams/roster | terminarz, wyniki, pełne box score'y (z nich: usage rate, pace, defensywa, podziały), kontuzje, składy, kursy DraftKings na mecze (open + aktualne) | nie |
-| ESPN `sports.core.api.espn.com` — `propBets` | propsy zawodników DraftKings: O/U, „X+” (milestones), double/triple double, **z kursami otwarcia**; dla zakończonych meczów zostają linie zamknięcia → prawdziwy backtest | nie |
-| ESPN `site.web.api.espn.com` — gamelog | logi meczowe z poprzedniego sezonu (priory bayesowskie) | nie |
-| **The Odds API** (`api.the-odds-api.com`) | kursy wielu bukmacherów (FanDuel, BetMGM, Caesars, Pinnacle w regionie `eu`…) — line shopping i ostrzejsza referencja no-vig | **tak** |
+## 9. Problemy i rozwiązania
 
-### Polscy bukmacherzy (strona „Polskie kursy”)
+| Problem | Rozwiązanie |
+|---|---|
+| `npm : … running scripts is disabled` (Windows) | Używaj `npm.cmd …` albo raz: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`. |
+| `'node' is not recognized` / `command not found: node` | Node.js nie jest zainstalowany albo trzeba otworzyć nowe okno PowerShella/Terminala po instalacji. |
+| Błąd o `node:sqlite` / „SQLite” | Za stara wersja Node.js — zainstaluj aktualną LTS (min. 22.13). Ostrzeżenie *„SQLite is an experimental feature”* jest normalne. |
+| `Port 3000 is in use` / `EADDRINUSE` | Aplikacja już działa w innym oknie — zamknij je albo uruchom na innym porcie: `npm start -- -p 3001`. |
+| Strona: „Pierwsze uruchomienie…”, brak typów | Dane wciąż się przygotowują (15–30 min) albo uruchom `npm run setup`. |
+| „System nie znalazł zakładów Najlepsze/Dobre” | To normalne w niektóre dni — model nie poleca na siłę. Kupony i typy dnia nadal są w „Kupony i wyniki”. |
+| Telefon nie otwiera strony | Ten sam Wi-Fi? Dobry adres (`http://`, a nie `https://`, i `:3000` na końcu)? Zapora — rozdział 5. Komputer nie śpi? |
+| „Superbet: brak kursów” | Zobacz raport na stronie „Polskie kursy” — mówi, czy OddsPapi przysłało kursy. Czasem trzeba spróbować za kilkanaście minut; można też wpisać kurs ręcznie. |
+| Chcę zacząć od zera | Zamknij aplikację, usuń folder `data` i uruchom `npm run setup`. |
 
-| Bukmacher | Skąd | Co |
-|---|---|---|
-| **Superbet PL** | OddsPapi v4 (`superbet.pl`) — automatycznie | moneyline, handicap, suma punktów, propsy: punkty, zbiórki, asysty, PRA, P+R, P+A, R+A, trójki, straty (+ drabinki „N+”) |
-| Fortuna PL | OddsPapi v4 (`efortuna.pl`) — opcjonalnie | tylko linie meczowe |
-| **Betclic PL**, **Betfan** | brak w jakimkolwiek API — wpisujesz ręcznie | dowolny rynek i linia |
+---
 
-Klucz: konto na <https://oddspapi.io> (darmowy plan), w `.env.local` ustaw `ODDSPAPI_KEY=…`
-(i opcjonalnie `ODDSPAPI_BOOKMAKERS=superbet.pl:superbet,efortuna.pl:fortuna`). Ręcznie wpisane kursy
-mają pierwszeństwo przed kursem z API. Model liczy prawdopodobieństwo dokładnie dla linii bukmachera,
-także gdy różni się od DraftKings. Zawodnicy spoza składów obu drużyn (pomyłki w feedzie) są odrzucani.
-Podatek 12% od stawki można włączyć w Ustawieniach (domyślnie wyłączony).
+## 10. Bezpieczeństwo i prywatność
 
-**Oszczędzanie limitu OddsPapi:** strony nigdy same nie pytają OddsPapi — używają zapisanych kursów.
-Zapytania idą tylko po kliknięciu **„Pobierz kursy”** na stronie „Polskie kursy” (koszt ≈ 1 + liczba meczów;
-strona pokazuje koszt i dzisiejsze zużycie). Opcjonalnie aplikacja ma własny dzienny limit `ODDSPAPI_DAILY_LIMIT` (domyślnie 0 = wyłączony)
-(domyślnie 30), nie ponawia odrzuconych zapytań, a błędną nazwę bukmachera zapamiętuje na 24 h, żeby
-nie płacić za nią ponownie. Automatyczne odświeżanie włączysz przez `ODDSPAPI_AUTO_REFRESH_MIN` (np. 60).
+- Plik **`.env.local`** zawiera Twoje klucze — **nie wysyłaj go nikomu i nie wrzucaj na GitHub** (jest wykluczony w `.gitignore`).
+  Jeśli klucz wyciekł, wygeneruj nowy na stronie dostawcy.
+- Każda osoba powinna mieć **własny** klucz OddsPapi (limit zapytań jest na klucz).
+- Wszystkie dane (mecze, wyniki, Twoje kursy) są zapisywane **tylko na Twoim komputerze** w folderze `data`.
+- Aplikacja niczego nie stawia za Ciebie i nie łączy się z kontem u bukmachera.
 
-**Klucz The Odds API:** załóż konto na <https://the-odds-api.com> (darmowy plan: 500 kredytów/mies.),
-wpisz `ODDS_API_KEY=...` do `.env.local`. Koszt = rynki × regiony za event; odpowiedzi są cache'owane
-30 min, propsy pobierane tylko dla meczów, które się nie zaczęły. Klucz nigdy nie trafia do cache ani logów.
+---
 
-**Czego nie używam i dlaczego:** `stats.nba.com` i `cdn.nba.com` blokują klientów spoza przeglądarki
-(403 / wymóg podszywania się pod nagłówki przeglądarki) — nie da się na nich oprzeć niezawodnej
-aplikacji. Wszystko, czego potrzebuje model, da się policzyć z box score'ów ESPN.
-
-**Kontuzje:** ESPN podaje tylko „Out” / „Day-To-Day”. Oficjalne Questionable / Doubtful / Probable
-wyciągam z treści raportu (`classifyInjury`), a ich niepewność trafia do modelu jako prawdopodobieństwo
-absencji (OUT 1.0, DOUBTFUL 0.75, QUESTIONABLE 0.35, DTD 0.25, PROBABLE 0.05).
-
-**Odporność:** każde zapytanie ma timeout, 3 ponowienia z backoffem, cache w SQLite z TTL
-(scoreboard 2 min, propsy 5 min, kontuzje 10 min, zakończone mecze na zawsze) i fallback do
-ostatniej dobrej kopii z flagą `stale`. Każda strona pokazuje czas ostatniej aktualizacji każdego źródła.
-Dostawcy są wymienialni: `lib/providers/*` normalizują dane do wspólnych typów (`GameInfo`, `PropLine`,
-`Offer`, `Injury`), a silnik pracuje tylko na nich.
-
-## Architektura
-
-```
-app/                     Next.js 16 (App Router) — strony server-side + API routes
-  page.tsx               Dashboard
-  games/, games/[id]     NBA Games — mecze, projekcja vs rynek, kontuzje, propsy meczu
-  players/, players/[id] Player Analysis — wyszukiwarka, wykresy linii, hit rate, projekcja, podziały
-  matchups/              Matchup Analysis — DRtg, pace, oddane statystyki, defensywa wg pozycji
-  value-bets/            Value Bet Finder — ranking z filtrami (EV, prawdop., rynek, drużyna, pewność)
-  odds/                  Odds Comparison — kursy, marża, no-vig, ruch linii, najlepsza cena
-  history/               Historical Performance — backtest, kalibracja, ROI/yield/CLV, track record
-  settings/              źródła danych, baza, parametry modelu, akcje
-  api/                   sync, backtest, settle, value-bets (JSON)
-components/              UI (BetTable, PlayerLab, LineBarChart, ReliabilityChart…)
-lib/
-  providers/espn.ts      ESPN + DraftKings (z weryfikacją stron Over/Under)
-  providers/oddsapi.ts   The Odds API
-  sync.ts                zapis do SQLite (inkrementalny)
-  store.ts, db.ts        dostęp do danych, schemat
-  model/context.ts       kontekst ligi „na dzień D” (tylko mecze przed D)
-  model/player.ts        model zawodnika (Monte Carlo)
-  model/game.ts          model meczu (ML / spread / total)
-  model/calibrate.ts     kalibracja logistyczna + metryki
-  odds/math.ts           implied, no-vig, edge, EV, fair odds, Kelly, CLV
-  engine.ts              analiza slate'u → ocenione zakłady z uzasadnieniem
-  backtest.ts            walk-forward backtest na prawdziwych kursach
-  tracking.ts            dziennik rekomendacji + rozliczanie + CLV
-```
-
-Baza: SQLite (`data/nba-edge.db`) — cache HTTP, mecze, box score'y, linie, predykcje, backtesty.
-Przejście na Postgres sprowadza się do podmiany `lib/db.ts` / `lib/store.ts`.
-
-## Silnik prawdopodobieństwa
-
-**Zawodnik** (`lib/model/player.ts`) — dla każdej statystyki (PTS, REB, AST, 3PM, STL, BLK, TOV):
-
-1. **Tempo na minutę**: posterior Gamma z ważonych wykładniczo meczów bieżącego sezonu
-   (half-life strojony w backteście), ściągany do tempa z poprzedniego sezonu (albo średniej
-   pozycji dla debiutantów). Wielkość próby jest wbudowana — mało meczów = mocne ściąganie i szerszy rozkład.
-2. **Minuty**: mieszanka ostatnich i sezonowych minut, regresja do zeszłego sezonu przy małej próbie,
-   efekt back-to-back estymowany z danych ligi, nieobecności kolegów: empiryczne podziały
-   with/without (z shrinkage), a bez próby — ostrożna, opisana heurystyka redystrybucji.
-   Liczą się tylko *świeże* nieobecności (już trwające są w bazowej formie).
-3. **Kontekst**: defensywa rywala na posiadanie wobec pozycji zawodnika (G/F/C), pace meczu,
-   dom/wyjazd, bardzo mocno ściągnięty wynik head-to-head, korekty de-bias z backtestu.
-4. **Rozkład**: Monte Carlo (8–10 tys. symulacji): minuty ~ Normal, statystyka | minuty ~ skalowany
-   rozkład ujemny dwumianowy z wariancją `κ·μ + φ·μ²` (κ≈2 dla punktów — punkty wpadają po 2–3),
-   plus wspólny czynnik „dobrego/słabego wieczoru” estymowany z kowariancji reszt — dzięki temu
-   PRA i double-double mają realistyczną korelację. Niepewność parametrów → przedział 80% dla
-   samego prawdopodobieństwa.
-
-**Mecz** (`lib/model/game.ts`): oceny ofensywne/defensywne na 100 posiadań (ważone, korygowane o
-siłę rywali, ściągane do średniej), pace, przewaga parkietu i odchylenia reszt estymowane z danych.
-
-**Rynek i EV** (`lib/odds/math.ts`): implied = 1/kurs; no-vig metodą potęgową dla rynków dwustronnych
-(dla jednostronnych marża szacowana z tego samego slate'u i oznaczona); edge = p_model − implied;
-EV = p_model·kurs − 1; fair odds = 1/p_model; ¼ Kelly informacyjnie.
-
-**Kalibracja** (`lib/model/calibrate.ts`): `p = σ(a + b·logit(p_model) + c·logit(p_rynek))`,
-dopasowana regresją logistyczną na wynikach backtestu. To tu model „uczy się”, ile jest wart względem rynku.
-
-**Bramka dowodowa**: typ rynku (propsy / linie meczowe) może generować rekomendacje tylko wtedy, gdy
-w ostatnim backteście skalibrowany model pokonał rynek no-vig poza próbą. W przeciwnym razie pewność
-jest obniżana do „Low” z wyjaśnieniem. Wysokie prawdopodobieństwo bez dodatniego EV nigdy nie jest rekomendacją.
-
-**Rozwój o ML**: `projectPlayer` zwraca czynniki i rozkład dla każdej statystyki — gotowe cechy dla
-modelu GBM/sieci. Harness backtestu (`generateRows`) przyjmie dowolny model i oceni go tą samą,
-szczelną procedurą.
-
-## Backtest i brak przecieku danych
-
-- Predykcja dla meczu z dnia D używa wyłącznie meczów z dni < D (`buildContext(D)`).
-- Zakłady „stawiane” po **kursach otwarcia DraftKings**; kurs zamknięcia służy tylko do CLV.
-- Kalibracja i strojenie parametrów — tylko na wcześniejszych 60% dat; wszystkie metryki na późniejszych 40%.
-- Dziennik rekomendacji (`predictions`) jest tylko dopisywany; model go nigdy nie czyta.
-- Znane przybliżenie: historyczne nieobecności biorę z box score'ów (kto nie zagrał), bo ESPN nie
-  archiwizuje przedmeczowych raportów kontuzji. Linie meczowe z przeszłości mają tylko kurs zamknięcia.
-
-## Wyniki i uczciwa ocena (stan na 10.11.2026, ~3 tygodnie sezonu)
-
-Out-of-sample (daty 3–9 XI, 4 400 linii propsów DraftKings):
-
-| | log-loss model surowy | rynek no-vig | skalibrowany |
-|---|---|---|---|
-| Propsy zawodników | 0.7060 | 0.6891 | **0.6874** |
-| Linie meczowe | 0.7007 | **0.6283** | 0.6331 |
-
-- Przedziały 80% projekcji pokrywają ~80% wyników (punkty 79.9%, PRA 78.6%) — rozkłady są dobrze skalibrowane.
-- Średnia projekcji jest jednak słabszym estymatorem niż linia bukmachera (RMSE punktów 6.53 vs 6.26):
-  rynek zna newsy, role i składy, których box score'y nie mają.
-- Symulacja zakładów z EV ≥ 3%: 671 zakładów, yield +0.9% (±3.6% błąd standardowy), **CLV −4.45%**.
-  Ujemne CLV oznacza, że linie poruszały się przeciw typom — to sygnał, że model nie ma realnej przewagi.
-- Wniosek: na dziś aplikacja to rzetelne narzędzie analityczne i rama do budowy przewagi, ale
-  **nie dowód, że pokonuje bukmachera**. Aplikacja mówi to wprost na dashboardzie i nie oznacza
-  jako value betów rzeczy, których skuteczności nie potwierdza backtest. Najbardziej obiecujące
-  kierunki: line shopping (The Odds API), wczesne kursy otwarcia, newsy o składach przed meczem,
-  dłuższa historia (poprzednie sezony do backtestu), model ML na cechach z `projectPlayer`.
-
-## Ograniczenia pierwszej wersji
-
-- Steals/blocks/turnovers O/U: DraftKings przez ESPN publikuje głównie progi „X+”; pełne O/U (w tym TOV) wymaga The Odds API.
-- Kursy otwarcia dla linii meczowych są zapisywane od momentu uruchomienia aplikacji (archiwum ESPN ma tylko zamknięcie).
-- Defensywa „wg pozycji” używa grup G/F/C z ESPN (bez danych o krycia 1-na-1, które nie są publicznie dostępne).
+**Dla zaawansowanych:** jak działa model, skąd są dane, jak wygląda backtest i jakie są wyniki —
+[docs/JAK-DZIALA.md](docs/JAK-DZIALA.md). Przydatne komendy: `npm test` (testy), `npm run backtest -- --tune`
+(dobór parametrów modelu), `npm run dev` (tryb deweloperski), `NBA_EDGE_NO_BACKGROUND=1` (wyłącza pracę w tle).
