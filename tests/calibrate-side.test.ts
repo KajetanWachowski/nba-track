@@ -10,3 +10,21 @@ describe("kalibracja stron zakładu", () => {
     }
   });
 });
+
+import { pOverTeamTotal, teamPtsSd } from "@/lib/model/game";
+import { H2H_STAT, isGameMarket, isH2H } from "@/lib/markets";
+
+describe("nowe rynki Superbetu", () => {
+  const gp = { homeId: "H", awayId: "A", possessions: 99, homePts: 115, awayPts: 108, margin: 7, total: 223, marginSd: 13, totalSd: 18, homeWinProb: 0.7, injuryAdj: [], restNote: [], sample: { home: 20, away: 20 } };
+  it("punkty drużyny: 50% na średniej, rosną przy niższej linii", () => {
+    expect(teamPtsSd(gp)).toBeCloseTo(Math.sqrt(18 ** 2 + 13 ** 2) / 2, 9);
+    expect(pOverTeamTotal(gp, "H", 115)).toBeCloseTo(0.5, 6);
+    expect(pOverTeamTotal(gp, "A", 100.5)).toBeGreaterThan(pOverTeamTotal(gp, "A", 110.5));
+    expect(isGameMarket("team_total")).toBe(true);
+  });
+  it("pojedynki: rozpoznanie i statystyka", () => {
+    expect(isH2H("h2h_pts")).toBe(true);
+    expect(isH2H("pts")).toBe(false);
+    expect(H2H_STAT.h2h_fg3m).toBe("fg3m");
+  });
+});

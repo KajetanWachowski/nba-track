@@ -13,11 +13,11 @@
  */
 import { config } from "./config";
 import { DataUnavailableError, mapLimit } from "./http";
-import { BASE_STATS, COMBOS, MARKET_LABEL, isGameMarket, type Market, type PlayerMarket, type StatKey } from "./markets";
+import { BASE_STATS, COMBOS, H2H_STAT, MARKET_LABEL, isGameMarket, isH2H, type H2HMarket, type Market, type PlayerMarket, type StatKey } from "./markets";
 import { calibrateSide, getCalibration, type Calibration } from "./model/calibrate";
 import { buildContext, posGroup, restDays, type LeagueContext } from "./model/context";
-import { pHomeCovers, pOverTotal, projectGame, type GameAbsence, type GameProjection } from "./model/game";
-import { distribution, lineHistory, probOver, projectPlayer, type PlayerProjection, type TeammateAbsence } from "./model/player";
+import { pHomeCovers, pOverTeamTotal, pOverTotal, projectGame, teamPtsSd, type GameAbsence, type GameProjection } from "./model/game";
+import { distribution, lineHistory, probOver, projectPlayer, simValues, type PlayerProjection, type TeammateAbsence } from "./model/player";
 import { getModelParams } from "./model/params";
 import { latestBacktest } from "./backtest";
 import { expectedValue, fairOdds, impliedProb, kelly, noVig, overround } from "./odds/math";
@@ -362,7 +362,7 @@ async function runSlate(day: string, force: boolean): Promise<SlateAnalysis> {
   const subjectTeam = new Map<string, string>();
   const priorByAthlete = new Map<string, number>();
   const priorLogs = new Map<string, Awaited<ReturnType<typeof fetchSeasonLog>>>();
-  const subjects = [...new Set(offers.filter((o) => !isGameMarket(o.market)).map((o) => `${o.gameId}|${o.subjectId}`))];
+  const subjects = [...new Set(offers.filter((o) => !isGameMarket(o.market)).flatMap((o) => (isH2H(o.market) ? o.subjectId.split(":") : [o.subjectId]).map((id) => `${o.gameId}|${id}`)))];
   await mapLimit(subjects, 6, async (k) => {
     const [gameId, athleteId] = k.split("|");
     const g = gameById.get(gameId)!;
@@ -437,7 +437,9 @@ async function runSlate(day: string, force: boolean): Promise<SlateAnalysis> {
       marketProb = Math.min(0.99, impliedProb(sharp?.dec ?? priceOffer.dec) / typicalOverround);
       marketProbSource = `rynek jednostronny — marża szacowana na ${((typicalOverround - 1) * 100).toFixed(1)}% na podstawie dzisiejszych rynków`;
     }
-    const e = isGameMarket(priceOffer.market)
+    const e = isH2H(priceOffer.market)
+      ? evalH2H(priceOffer, g, priceOffer.subjectId.split(":").map((id) => projections.get(`${g.id}|${id}`)), priceOffer.subjectId.split(":").map((id) => subjectTeam.get(`${g.id}|${id}`)), teams, marketProb, injOf, injuriesAvailable)
+      : isGameMarket(priceOffer.market)
       ? evalGame(priceOffer, g, gameProj.get(g.id) ?? null, teams, cal.game, marketProb)
       : evalPlayer(priceOffer, g, projections.get(`${g.id}|${priceOffer.subjectId}`), ctx, teams, cal.player, marketProb, injOf, injuriesAvailable, subjectTeam.get(`${g.id}|${priceOffer.subjectId}`));
     if (!e) continue;
@@ -518,7 +520,7 @@ async function runSlate(day: string, force: boolean): Promise<SlateAnalysis> {
         price, playable, manualPrice, staleMin: manualPrice ? null : ageMin(priceOffer), sample: Math.min(gp.sample.home, gp.sample.away),
         injuryNotes: gp.injuryAdj.map((i) => `${i.name} nie zagra: ${teams.get(i.teamId)?.abbr} ${i.pts.toFixed(1)} pkt (szacunek heurystyczny).`),
         restNotes: gp.restNote.map((r) => (r.startsWith("home") ? "Gospodarze grają drugi mecz dzień po dniu." : "Goście grają drugi mecz dzień po dniu.")),
-        calibrated: Boolean(cal.game.fittedAt), marketProven: marketProven(bet.market, "game"),
+        calibrated: isH2H(bet.market) ? false : Boolean(cal.game.fittedAt), marketProven: marketProven(bet.market, "game"),
       });
     }
     const a = bet.assessment;
@@ -672,6 +674,58 @@ function evalPlayer(
   };
 }
 
+/**
+ * Pojedynek „A więcej niż B” (subjectId „A:B”). Szansa z tych samych symulacji co linie zawodników,
+ * los A i B parowany po numerze symulacji (niezależnie). Remis = zwrot, więc szansa jest warunkowa na rozstrzygnięcie.
+ * Rynek nie jest jeszcze sprawdzony w backteście — bez kalibracji, z ostrzeżeniem.
+ */
+function evalH2H(
+  o: Offer, g: GameRow, projs: (PlayerProjection | undefined)[], tms: (string | undefined)[], teams: Map<string, TeamRow>,
+  marketProb: number | null, injOf: Map<string, Injury>, injuriesAvailable: boolean,
+): EvalCore | null {
+  const [pa, pb] = projs;
+  if (!pa || !pb || !tms[0] || !tms[1]) return null;
+  const st = H2H_STAT[o.market as H2HMarket];
+  const va = simValues(pa, st), vb = simValues(pb, st);
+  const n = Math.min(va.length, vb.length);
+  if (!n) return null;
+  let w = 0, t = 0;
+  for (let i = 0; i < n; i++) {
+    if (va[i] > vb[i]) w++;
+    else if (va[i] === vb[i]) t++;
+  }
+  const pTie = t / n;
+  const raw = Math.min(0.995, Math.max(0.005, w / Math.max(1, n - t)));
+  const da = distribution(pa, st), db = distribution(pb, st);
+  const label = MARKET_LABEL[st];
+  const reasons = [
+    `${pa.name}: średnio ${da.mean.toFixed(1)} (${da.p10}–${da.p90}) · ${pb.name}: średnio ${db.mean.toFixed(1)} (${db.p10}–${db.p90}) — ${label.toLowerCase()}`,
+    `Remis w ${(pTie * 100).toFixed(1)}% symulacji (zwrot stawki); szansa liczona bez remisów: ${(raw * 100).toFixed(1)}%`,
+  ];
+  if (marketProb !== null) reasons.push(`Rynek bez marży ${(marketProb * 100).toFixed(1)}%`);
+  const warnings = ["Pojedynki nie są jeszcze sprawdzone w backteście — prawdopodobieństwo bez kalibracji."];
+  let score = 55;
+  if (marketProb !== null && Math.abs(raw - marketProb) > 0.15) {
+    score -= 30;
+    warnings.push("Model i rynek różnią się o ponad 15 pp — prawdopodobnie brakuje informacji (newsy, zmiana roli).");
+  }
+  for (const [p, id] of [[pa, o.subjectId.split(":")[0]], [pb, o.subjectId.split(":")[1]]] as const) {
+    const s = injOf.get(id)?.status;
+    if (s === "QUESTIONABLE" || s === "DAY-TO-DAY") { score -= 20; warnings.push(`${p.name}: status ${s}`); }
+    if (s === "DOUBTFUL" || s === "OUT") score -= 70;
+  }
+  if (!injuriesAvailable) score = Math.min(score, 40);
+  const se = Math.sqrt((raw * (1 - raw)) / n) + 0.04; // niepewność parametrów (bez kalibracji)
+  return {
+    // „game”: pojedynki oceniamy jak rynki meczowe (bez projekcji jednego zawodnika) i nie trafiają do kuponów/typów dnia
+    kind: "game", subjectId: o.subjectId, subjectName: `${pa.name} vs ${pb.name}`, teamId: tms[0], teamAbbr: teams.get(tms[0])?.abbr ?? "",
+    oppAbbr: teams.get(tms[1])?.abbr ?? "", selection: `${pa.name} więcej niż ${pb.name} · ${label}`,
+    rawProb: raw, modelProb: raw, pLow: Math.max(0.005, raw - se), pHigh: Math.min(0.995, raw + se),
+    projection: { mean: da.mean - db.mean, median: da.median - db.median, p10: da.p10 - db.p90, p90: da.p90 - db.p10 },
+    hitRates: null, confidence: "Medium", confidenceScore: score, reasons, warnings,
+  };
+}
+
 function evalGame(o: Offer, g: GameRow, gp: GameProjection | null, teams: Map<string, TeamRow>, cal: Calibration, marketProb: number | null): EvalCore | null {
   if (!gp) return null;
   const home = teams.get(g.home_id);
@@ -691,6 +745,12 @@ function evalGame(o: Offer, g: GameRow, gp: GameProjection | null, teams: Map<st
     raw = o.side === "home" ? pHome : 1 - pHome;
     subjectName = (o.side === "home" ? home : away)?.name ?? "";
     selection = `Handicap ${(o.side === "home" ? home : away)?.abbr} ${o.line! > 0 ? "+" : ""}${o.line}`;
+  } else if (o.market === "team_total") {
+    const pOver = pOverTeamTotal(gp, o.subjectId, o.line!);
+    raw = o.side === "over" ? pOver : 1 - pOver;
+    const t = teams.get(o.subjectId);
+    subjectName = t?.name ?? "";
+    selection = `${t?.abbr ?? ""} ${o.side === "over" ? "powyżej" : "poniżej"} ${o.line} pkt`;
   } else {
     const pOver = pOverTotal(gp, o.line!);
     raw = o.side === "over" ? pOver : 1 - pOver;
@@ -700,8 +760,8 @@ function evalGame(o: Offer, g: GameRow, gp: GameProjection | null, teams: Map<st
   }
   // parameter uncertainty: ±1 SE of the projected mean (team ratings from limited games)
   const n = Math.min(gp.sample.home, gp.sample.away);
-  const se = (o.market === "total" ? gp.totalSd : sdM) / Math.sqrt(Math.max(1, n));
-  const sd = o.market === "total" ? gp.totalSd : sdM;
+  const sd = o.market === "total" ? gp.totalSd : o.market === "team_total" ? teamPtsSd(gp) : sdM;
+  const se = sd / Math.sqrt(Math.max(1, n));
   const dz = (1.28 * se) / sd;
   const z = Math.log(raw / (1 - raw));
   const pLow = 1 / (1 + Math.exp(-(z - dz * 1.6)));
@@ -726,7 +786,7 @@ function evalGame(o: Offer, g: GameRow, gp: GameProjection | null, teams: Map<st
     kind: "game", subjectId: o.subjectId, subjectName, teamId, teamAbbr: teams.get(teamId)?.abbr ?? "",
     oppAbbr: teams.get(teamId === g.home_id ? g.away_id : g.home_id)?.abbr ?? "",
     selection, rawProb: raw, modelProb, pLow: calibrateSide(cal, pLow, marketProb, o.side === "under" || o.side === "away"), pHigh: calibrateSide(cal, pHigh, marketProb, o.side === "under" || o.side === "away"),
-    projection: o.market === "total" ? { mean: gp.total, median: gp.total, p10: gp.total - 1.28 * gp.totalSd, p90: gp.total + 1.28 * gp.totalSd } : o.market === "spread" ? { mean: gp.margin, median: gp.margin, p10: gp.margin - 1.28 * sdM, p90: gp.margin + 1.28 * sdM } : null,
+    projection: o.market === "team_total" ? (() => { const m = o.subjectId === g.home_id ? gp.homePts : gp.awayPts, sd = teamPtsSd(gp); return { mean: m, median: m, p10: m - 1.28 * sd, p90: m + 1.28 * sd }; })() : o.market === "total" ? { mean: gp.total, median: gp.total, p10: gp.total - 1.28 * gp.totalSd, p90: gp.total + 1.28 * gp.totalSd } : o.market === "spread" ? { mean: gp.margin, median: gp.margin, p10: gp.margin - 1.28 * sdM, p90: gp.margin + 1.28 * sdM } : null,
     hitRates: null, confidence: "Medium", confidenceScore: score, reasons, warnings,
   };
 }

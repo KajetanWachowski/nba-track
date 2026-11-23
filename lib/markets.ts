@@ -1,8 +1,9 @@
 /** Canonical market keys used across providers, the model and the UI. */
 export type StatKey = "pts" | "reb" | "ast" | "fg3m" | "stl" | "blk" | "tov";
 export type ComboKey = "pra" | "pr" | "pa" | "ra" | "stocks";
-export type PlayerMarket = StatKey | ComboKey | "dd" | "td";
-export type GameMarket = "ml" | "spread" | "total";
+export type H2HMarket = "h2h_pts" | "h2h_reb" | "h2h_ast" | "h2h_fg3m";
+export type PlayerMarket = StatKey | ComboKey | "dd" | "td" | H2HMarket;
+export type GameMarket = "ml" | "spread" | "total" | "team_total";
 export type Market = PlayerMarket | GameMarket;
 
 export const BASE_STATS: StatKey[] = ["pts", "reb", "ast", "fg3m", "stl", "blk", "tov"];
@@ -33,14 +34,23 @@ export const MARKET_LABEL: Record<Market, string> = {
   ml: "Zwycięzca meczu",
   spread: "Handicap",
   total: "Suma punktów w meczu",
+  team_total: "Punkty drużyny",
+  h2h_pts: "Pojedynek: punkty",
+  h2h_reb: "Pojedynek: zbiórki",
+  h2h_ast: "Pojedynek: asysty",
+  h2h_fg3m: "Pojedynek: trójki",
 };
+
+/** Pojedynek zawodników „kto więcej”: rynek → statystyka. subjectId = „A:B”, strona „yes” = A więcej niż B. */
+export const H2H_STAT: Record<H2HMarket, StatKey> = { h2h_pts: "pts", h2h_reb: "reb", h2h_ast: "ast", h2h_fg3m: "fg3m" };
+export const isH2H = (m: string): m is H2HMarket => m in H2H_STAT;
 
 export const PLAYER_LINE_MARKETS: (StatKey | ComboKey)[] = [
   "pts", "reb", "ast", "pra", "pr", "pa", "ra", "fg3m", "stl", "blk", "tov", "stocks",
 ];
 
 export function isGameMarket(m: string): m is GameMarket {
-  return m === "ml" || m === "spread" || m === "total";
+  return m === "ml" || m === "spread" || m === "total" || m === "team_total";
 }
 
 export function statValue(row: Record<StatKey, number>, m: StatKey | ComboKey): number {

@@ -6,7 +6,7 @@
 import { config } from "./config";
 import { getDb } from "./db";
 import type { BetEval } from "./engine";
-import { COMBOS, type StatKey } from "./markets";
+import { COMBOS, H2H_STAT, isH2H, type StatKey } from "./markets";
 import { clv, noVig } from "./odds/math";
 import type { PlayerGameRow, PropLineRow } from "./store";
 import { syncSeason } from "./sync";
@@ -55,7 +55,12 @@ export async function settlePredictions(opts: { sync?: boolean } = {}) {
     let closingPrice: number | null = null;
     let closingLine: number | null = null;
     let clvVal: number | null = null;
-    if (p.market === "ml" || p.market === "spread" || p.market === "total") {
+    if (p.market === "team_total") {
+      // punkty jednej drużyny (z dogrywką); bez linii zamknięcia z DraftKings
+      actual = p.subject_id === g.home_id ? g.home_score : g.away_score;
+      won = actual === p.line ? null : (p.side === "over") === actual > (p.line ?? 0) ? 1 : 0;
+      if (won === null) status = "push";
+    } else if (p.market === "ml" || p.market === "spread" || p.market === "total") {
       const gl = db.prepare("SELECT * FROM game_lines WHERE game_id = ? AND book = 'draftkings'").get(p.game_id) as Record<string, number | null> | undefined;
       const margin = g.home_score - g.away_score;
       const isHome = p.side === "home";
@@ -82,6 +87,18 @@ export async function settlePredictions(opts: { sync?: boolean } = {}) {
         closingPrice = (p.side === "over" ? gl?.over_dec : gl?.under_dec) ?? null;
         const opp = (p.side === "over" ? gl?.under_dec : gl?.over_dec) ?? null;
         if (closingPrice && opp && closingLine === p.line) clvVal = clv(p.price, noVig([closingPrice, opp])[0]);
+      }
+    } else if (isH2H(p.market)) {
+      // pojedynek „A więcej niż B”: obaj muszą zagrać; remis = zwrot
+      const [a, b] = p.subject_id.split(":");
+      const ra = db.prepare("SELECT * FROM player_games WHERE game_id = ? AND athlete_id = ?").get(p.game_id, a) as PlayerGameRow | undefined;
+      const rb = db.prepare("SELECT * FROM player_games WHERE game_id = ? AND athlete_id = ?").get(p.game_id, b) as PlayerGameRow | undefined;
+      if (!ra || !rb || ra.dnp || rb.dnp || ra.min <= 0 || rb.min <= 0) status = "void";
+      else {
+        const st = H2H_STAT[p.market];
+        actual = ra[st] - rb[st];
+        won = actual === 0 ? null : actual > 0 ? 1 : 0;
+        if (won === null) status = "push";
       }
     } else {
       const row = db.prepare("SELECT * FROM player_games WHERE game_id = ? AND athlete_id = ?").get(p.game_id, p.subject_id) as PlayerGameRow | undefined;

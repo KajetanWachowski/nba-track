@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { PlayerLab } from "@/components/PlayerLab";
 import { Card, InjuryBadge, PageHeader, TeamLogo } from "@/components/ui";
 import { getPlayerAnalysis } from "@/lib/analysis";
@@ -12,6 +12,8 @@ const COLS: [string, string][] = [["min", "MIN"], ["pts", "PTS"], ["reb", "REB"]
 
 export default async function PlayerPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ market?: string; line?: string }> }) {
   const { id } = await params;
+  // pojedynek H2H („A:B”) → strona pierwszego zawodnika
+  if (decodeURIComponent(id).includes(":")) redirect(`/players/${decodeURIComponent(id).split(":")[0]}`);
   const sp = await searchParams;
   const a = await getPlayerAnalysis(id);
   if (!a) notFound();

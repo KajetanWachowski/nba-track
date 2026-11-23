@@ -28,7 +28,9 @@ export default async function Games({ searchParams }: { searchParams: Promise<{ 
             <div className="grid gap-4 md:grid-cols-2">
               {a.games.map((g) => {
                 const p = g.projection;
-                const line = (m: string, side: string) => a.bets.find((b) => b.gameId === g.id && b.market === m && b.side === side);
+                // linia główna: DraftKings, a jeśli jej nie ma — najbardziej wyrównany kurs (Superbet podaje też linie alternatywne)
+                const line = (m: string, side: string) => a.bets.filter((b) => b.gameId === g.id && b.market === m && b.side === side)
+                  .sort((x, y) => Number(y.offers.some((o) => o.bookKey === "draftkings")) - Number(x.offers.some((o) => o.bookKey === "draftkings")) || Math.abs(x.priceRaw - 1.91) - Math.abs(y.priceRaw - 1.91))[0];
                 const n = a.bets.filter((b) => b.gameId === g.id && b.kind === "player").length;
                 const rec = a.bets.filter((b) => b.gameId === g.id && (b.assessment.category === "najlepsze" || b.assessment.category === "dobre")).length;
                 const out = a.injuries.filter((i) => (i.teamId === g.home_id || i.teamId === g.away_id) && i.status === "OUT").length;

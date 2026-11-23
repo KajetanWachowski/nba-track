@@ -7,11 +7,13 @@
  *   GET {BASE}/v2/pl-PL/events/{eventId}
  *       → data[0].odds[]: marketName, name, price, status, code, specifiers {player, total, milestone, hcp}
  * Rynki: linie zawodników powyżej/poniżej (pkt, zb, as, 3pt, PRA, P+Z, P+A, Z+A, straty, przechwyty, bloki),
- * drabinki „N+”, double-double, zwycięzca, handicap i suma punktów (wszystko z dogrywką).
+ * drabinki „N+”, double-double, pojedynki H2H (pkt, zb, as, 3pt), zwycięzca, wszystkie linie handicapu i sumy,
+ * punkty każdej drużyny (wszystko z dogrywką). Pomijane (model ich nie wycenia): kwarty, połowy, faule, oddane rzuty,
+ * „pierwszy”, „najwięcej”, wyścig do X pkt, łączne statystyki kilku zawodników i gotowe zakłady łączone.
  * Zasady: ~1 zapytanie na sekundę, kopia w pamięci podręcznej 15 min, przy 403/429 przerywamy (bez obchodzenia blokad).
  */
 import { fetchJson } from "../http";
-import type { Market } from "../markets";
+import type { H2HMarket, Market } from "../markets";
 import { normName, type GameRef } from "./oddsapi";
 import { playerMatcher, type PapiOffer } from "./oddspapi";
 
@@ -57,6 +59,15 @@ const LADDER: [RegExp, Market][] = [
   [/^przechwyty zawodnika/i, "stl"],
   [/^bloki zawodnika/i, "blk"],
 ];
+
+const H2H: [RegExp, H2HMarket][] = [
+  [/^zawodnicy h2h - liczba punktów/i, "h2h_pts"],
+  [/^zawodnicy h2h - liczba zbiórek/i, "h2h_reb"],
+  [/^zawodnicy h2h - liczba asyst/i, "h2h_ast"],
+  [/^zawodnicy h2h - liczba trafionych rzutów za 3\s?pkt/i, "h2h_fg3m"],
+];
+/** alternatywne linie z bardzo nierównymi kursami mają dużą marżę — zostają linie z kursami 1.30–4.00 po obu stronach */
+const saneAlt = (a?: number, b?: number) => !!a && !!b && a >= 1.3 && b >= 1.3 && a <= 4 && b <= 4;
 
 const sim = (a: string, b: string) => {
   const x = normName(a), y = normName(b);
@@ -142,7 +153,7 @@ export async function fetchSuperbet(games: GameRef[], playerIndex: Map<string, s
     for (const o of odds) {
       if (o.status !== "active" || !(o.price > 1)) continue;
       const mName = String(o.marketName ?? "").trim();
-      if (mName.includes(";") || /kwarta|połowa|pierwszy|najwięcej|h2h|łączna/i.test(mName)) continue;
+      if (mName.includes(";") || /kwarta|połowa|pierwszy|najwięcej|łączna|wyścig|faul|oddanych/i.test(mName)) continue;
       const sp = o.specifiers ?? {};
       const name = String(o.name ?? "");
       let mm: Market | undefined;
@@ -169,6 +180,20 @@ export async function fetchSuperbet(games: GameRef[], playerIndex: Map<string, s
         if (!m || !t) continue;
         const homeLine = t.side === "home" ? Number(m[2]) : -Number(m[2]);
         put(`spread|${homeLine}`, () => ({ market: "spread", subj: "", line: homeLine, kind: "game", sideA: "home", sideB: "away" }), t.side === "home" ? "a" : "b", o.price);
+      } else if ((mm = H2H.find(([re]) => re.test(mName))?.[1]) && sp.player1 && sp.player2) {
+        // „Diabate, Moussa > Wells, Jaylen” — zakład na pierwszego z nazwy (remis = zwrot)
+        const [x, y] = name.split(">").map((t) => t.trim());
+        const ia = x ? athlete(x) : null, ib = y ? athlete(y) : null;
+        if (!ia || !ib) continue;
+        const [k1, k2] = [ia, ib].sort();
+        put(`${mm}|${k1}:${k2}`, () => ({ market: mm!, subj: `${k1}:${k2}`, line: null, kind: "yes", sideA: "yes", sideB: "yes", subjB: `${k2}:${k1}` }), ia === k1 ? "a" : "b", o.price);
+      } else if (sp.total != null && /liczba punktów \(z dogrywką\)$/i.test(mName) && !/^liczba punktów/i.test(mName)) {
+        // punkty drużyny: „Charlotte Hornets liczba punktów (z dogrywką)”
+        const t = teamOf(mName.replace(/\s*liczba punktów.*$/i, ""));
+        const slot = ouSlot(name);
+        if (!t || !slot) continue;
+        const line = Number(sp.total);
+        put(`team_total|${t.id}|${line}`, () => ({ market: "team_total", subj: t.id, line, kind: "game", sideA: "over", sideB: "under" }), slot, o.price);
       } else if (/^liczba punktów \(z dogrywką\)$/i.test(mName) && sp.total != null) {
         const slot = ouSlot(name);
         if (!slot) continue;
@@ -176,17 +201,19 @@ export async function fetchSuperbet(games: GameRef[], playerIndex: Map<string, s
         put(`total|${line}`, () => ({ market: "total", subj: "game", line, kind: "game", sideA: "over", sideB: "under" }), slot, o.price);
       }
     }
-    // handicap i suma: Superbet podaje kilkadziesiąt alternatywnych linii z dużą marżą — zostaje linia główna (najbardziej wyrównane kursy)
-    for (const m of ["spread", "total"] as const) {
-      const ps = [...pairs.entries()].filter(([, p]) => p.market === m && p.a && p.b);
-      const main = ps.sort((x, y) => Math.abs(x[1].a! - x[1].b!) - Math.abs(y[1].a! - y[1].b!))[0]?.[0];
-      for (const [k, p] of pairs) if (p.market === m && k !== main) pairs.delete(k);
-    }
+    // alternatywne linie handicapu i sum: zostają te z rozsądnymi kursami po obu stronach (bez skrajnych linii z dużą marżą)
+    for (const [k, p] of pairs) if ((p.market === "spread" || p.market === "total" || p.market === "team_total") && !saneAlt(p.a, p.b)) pairs.delete(k);
     for (const p of pairs.values()) {
       if (p.market === "ml" || p.market === "spread") {
         // strona gospodarza / gościa; linia handicapu z perspektywy danej strony
         if (p.a) res.offers.push(mk(p.market, g.homeId, "home", p.line, p.a, p.b ?? null, "game"));
         if (p.b) res.offers.push(mk(p.market, g.awayId, "away", p.line == null ? null : -p.line, p.b, p.a ?? null, "game"));
+        continue;
+      }
+      if (p.subjB) {
+        // pojedynek: każda strona to osobny „temat” A:B (A więcej niż B), kurs przeciwny = druga strona
+        if (p.a) res.offers.push(mk(p.market, p.subj, "yes", null, p.a, p.b ?? null, "yes"));
+        if (p.b) res.offers.push(mk(p.market, p.subjB, "yes", null, p.b, p.a ?? null, "yes"));
         continue;
       }
       if (p.a) res.offers.push(mk(p.market, p.subj, p.sideA, p.line, p.a, p.b ?? null, p.kind));

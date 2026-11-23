@@ -88,6 +88,14 @@ export function pHomeCovers(g: GameProjection, homeLine: number): number {
   return 1 - normalCdf(-homeLine, g.margin, g.marginSd);
 }
 
+/** Odchylenie punktów jednej drużyny: total = H + A, margin = H − A ⇒ σ_H ≈ √(σ_T² + σ_M²) / 2 (przy braku korelacji). */
+export const teamPtsSd = (g: GameProjection) => Math.sqrt(g.totalSd ** 2 + g.marginSd ** 2) / 2;
+
+/** P(drużyna zdobędzie więcej niż `line` punktów). */
+export function pOverTeamTotal(g: GameProjection, teamId: string, line: number): number {
+  return 1 - normalCdf(line, teamId === g.homeId ? g.homePts : g.awayPts, teamPtsSd(g));
+}
+
 export function pOverTotal(g: GameProjection, line: number): number {
   return 1 - normalCdf(line, g.total, g.totalSd);
 }
