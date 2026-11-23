@@ -77,13 +77,12 @@ export default async function PolishOdds({ searchParams }: { searchParams: Promi
     <>
       <AutoRefresh seconds={300} />
       <PageHeader eyebrow={`Superbet · Betclic · Betfan · ${dayLabel(day)}`} title="Polskie" accent="kursy" />
-      <SourceBar sources={a.sources.filter((s) => /OddsPapi|Ręcznie|DraftKings/.test(s.name))} />
-      {!oddsPapiEnabled() && (
-        <Notice tone="neutral">
-          Automatyczne kursy polskich bukmacherów wymagają klucza OddsPapi (<code>ODDSPAPI_KEY</code>, patrz Ustawienia). Betfan nie jest dostępny w żadnym
-          znanym agregatorze — jego kursy wpisujesz poniżej ręcznie.
-        </Notice>
-      )}
+      <SourceBar sources={a.sources.filter((s) => /OddsPapi|Superbet|Ręcznie|DraftKings/.test(s.name))} />
+      <Notice tone="neutral">
+        Superbet jest pobierany automatycznie prosto z publicznych danych superbet.pl — bez klucza i bez limitu (kopia odświeżana co 15 min):
+        linie zawodników, drabinki „N+”, double-double, zwycięzca, handicap i suma punktów. Te kursy zastępują Superbet z OddsPapi.
+        {!oddsPapiEnabled() && <> Betclic wymaga klucza OddsPapi (<code>ODDSPAPI_KEY</code>, patrz Ustawienia); Betfan wpisujesz poniżej ręcznie.</>}
+      </Notice>
       {oddsPapiEnabled() && (() => {
         const u = getUsage();
         const cost = refreshCost(pre.length);

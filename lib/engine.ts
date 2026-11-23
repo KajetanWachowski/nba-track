@@ -14,7 +14,7 @@
 import { config } from "./config";
 import { DataUnavailableError, mapLimit } from "./http";
 import { BASE_STATS, COMBOS, MARKET_LABEL, isGameMarket, type Market, type PlayerMarket, type StatKey } from "./markets";
-import { applyCalibration, getCalibration, type Calibration } from "./model/calibrate";
+import { calibrateSide, getCalibration, type Calibration } from "./model/calibrate";
 import { buildContext, posGroup, restDays, type LeagueContext } from "./model/context";
 import { pHomeCovers, pOverTotal, projectGame, type GameAbsence, type GameProjection } from "./model/game";
 import { distribution, lineHistory, probOver, projectPlayer, type PlayerProjection, type TeammateAbsence } from "./model/player";
@@ -32,6 +32,7 @@ import { choosePrice } from "./pricing";
 import { explainProjection } from "./model/explain";
 import { listManual, manualToOffers } from "./manual-odds";
 import { fetchPolishOffers, getUsage as getPapiUsage, oddsPapiEnabled } from "./providers/oddspapi";
+import { fetchSuperbet } from "./providers/superbet";
 import { logPredictions } from "./tracking";
 import { recordDailyPicks } from "./daily-picks";
 
@@ -297,6 +298,29 @@ async function runSlate(day: string, force: boolean): Promise<SlateAnalysis> {
     } catch (e) {
       sources.push({ name: "OddsPapi (polscy bukmacherzy)", fetchedAt: null, ok: false, note: (e as Error).message });
       warnings.push(`OddsPapi: błąd — ${(e as Error).message}`);
+    }
+  }
+  // ---- Superbet bezpośrednio (publiczne dane superbet.pl, bez klucza i limitu) ----
+  // Zastępuje kursy Superbetu z OddsPapi dla meczów, które udało się pobrać (pełniejsza i świeższa oferta).
+  if (config.superbetDirect) {
+    try {
+      const refs: GameRef[] = games.filter((g) => g.state === "pre").map((g) => ({ gameId: g.id, date: g.date, homeId: g.home_id, awayId: g.away_id, homeName: teams.get(g.home_id)?.name ?? "", awayName: teams.get(g.away_id)?.name ?? "" }));
+      const playerIndex = new Map<string, string>();
+      for (const [id, n] of rosterName) playerIndex.set(normName(n), id);
+      const r = await fetchSuperbet(refs, playerIndex, rosterTeam);
+      const direct = new Set(r.offers.map((o) => o.gameId));
+      for (let i = offers.length - 1; i >= 0; i--) if (offers[i].book === "superbet" && offers[i].source === "api" && direct.has(offers[i].gameId)) offers.splice(i, 1);
+      for (const o of r.offers) {
+        if (manualKeys.has(`${o.gameId}|${o.market}|${o.subjectId}|${o.side}|${o.line ?? ""}|${o.book}`)) continue; // ręczny wpis wygrywa
+        if (o.kind === "milestone" && (o.dec < 1.25 || o.dec > 6)) continue; // skrajne szczeble drabinki — wysoka, nieznana marża
+        offers.push({ ...o, openLine: null, openPrice: null, sideCheck: "labeled", seenAt: r.fetchedAt || null, source: "api" });
+      }
+      sources.push({ name: "Superbet (bezpośrednio z superbet.pl)", fetchedAt: r.fetchedAt || null, ok: !r.errors.length || r.matchedGames > 0, note: `${r.matchedGames}/${refs.length} meczów · ${r.offers.length} kursów` });
+      if (r.errors.length) warnings.push(`Superbet: ${r.errors.slice(0, 2).join(" · ")}`);
+      if (r.unmatchedPlayers.length) warnings.push(`Superbet: nie dopasowano zawodników ${r.unmatchedPlayers.slice(0, 6).join(", ")}${r.unmatchedPlayers.length > 6 ? "…" : ""} (spoza składów w ESPN).`);
+    } catch (e) {
+      sources.push({ name: "Superbet (bezpośrednio z superbet.pl)", fetchedAt: null, ok: false, note: (e as Error).message });
+      warnings.push(`Superbet: błąd — ${(e as Error).message}`);
     }
   }
   for (const o of manual) offers.push({ ...o, openLine: null, openPrice: null, sideCheck: "manual", seenAt: Date.parse(o.lastUpdate ?? "") || null, source: "manual" });
@@ -569,7 +593,7 @@ function evalPlayer(
   const raw = isUnder ? 1 - pr.p : pr.p;
   const pLow = isUnder ? 1 - pr.pHigh : pr.pLow;
   const pHigh = isUnder ? 1 - pr.pLow : pr.pHigh;
-  const modelProb = applyCalibration(cal, raw, marketProb);
+  const modelProb = calibrateSide(cal, raw, marketProb, o.side === "under" || o.side === "away");
   const dist = distribution(proj, market);
   const rows = ctx.playerGames(o.subjectId);
   const hr = (n: number) => {
@@ -637,8 +661,8 @@ function evalPlayer(
     rawProb: raw,
     modelProb,
     // the uncertainty band goes through the same (monotonic) calibration as the point estimate
-    pLow: applyCalibration(cal, pLow, marketProb),
-    pHigh: applyCalibration(cal, pHigh, marketProb),
+    pLow: calibrateSide(cal, pLow, marketProb, o.side === "under" || o.side === "away"),
+    pHigh: calibrateSide(cal, pHigh, marketProb, o.side === "under" || o.side === "away"),
     projection: market === "dd" || market === "td" ? null : { mean: dist.mean, median: dist.median, p10: dist.p10, p90: dist.p90 },
     hitRates: { l5: hr(5), l10: hr(10), l20: hr(20), season: hr(82) },
     confidence: "Medium",
@@ -682,7 +706,7 @@ function evalGame(o: Offer, g: GameRow, gp: GameProjection | null, teams: Map<st
   const z = Math.log(raw / (1 - raw));
   const pLow = 1 / (1 + Math.exp(-(z - dz * 1.6)));
   const pHigh = 1 / (1 + Math.exp(-(z + dz * 1.6)));
-  const modelProb = applyCalibration(cal, raw, marketProb);
+  const modelProb = calibrateSide(cal, raw, marketProb, o.side === "under" || o.side === "away");
   const reasons = [
     `Projected ${away?.abbr} ${gp.awayPts.toFixed(1)} – ${home?.abbr} ${gp.homePts.toFixed(1)} (margin ${gp.margin > 0 ? home?.abbr : away?.abbr} by ${Math.abs(gp.margin).toFixed(1)}, total ${gp.total.toFixed(1)})`,
     `${gp.possessions.toFixed(1)} projected possessions · margin σ ${gp.marginSd.toFixed(1)} · total σ ${gp.totalSd.toFixed(1)}`,
@@ -701,7 +725,7 @@ function evalGame(o: Offer, g: GameRow, gp: GameProjection | null, teams: Map<st
   return {
     kind: "game", subjectId: o.subjectId, subjectName, teamId, teamAbbr: teams.get(teamId)?.abbr ?? "",
     oppAbbr: teams.get(teamId === g.home_id ? g.away_id : g.home_id)?.abbr ?? "",
-    selection, rawProb: raw, modelProb, pLow: applyCalibration(cal, pLow, marketProb), pHigh: applyCalibration(cal, pHigh, marketProb),
+    selection, rawProb: raw, modelProb, pLow: calibrateSide(cal, pLow, marketProb, o.side === "under" || o.side === "away"), pHigh: calibrateSide(cal, pHigh, marketProb, o.side === "under" || o.side === "away"),
     projection: o.market === "total" ? { mean: gp.total, median: gp.total, p10: gp.total - 1.28 * gp.totalSd, p90: gp.total + 1.28 * gp.totalSd } : o.market === "spread" ? { mean: gp.margin, median: gp.margin, p10: gp.margin - 1.28 * sdM, p90: gp.margin + 1.28 * sdM } : null,
     hitRates: null, confidence: "Medium", confidenceScore: score, reasons, warnings,
   };

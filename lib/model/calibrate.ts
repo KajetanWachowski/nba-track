@@ -40,6 +40,16 @@ export function applyCalibration(c: Calibration, pModel: number, pMarket: number
   return clampP(sigmoid(c.a + c.b * zm + c.c * zk));
 }
 
+/**
+ * Kalibracja dla dowolnej strony zakładu. Backtest dopasowuje ją do strony „powyżej” / gospodarza,
+ * więc dla strony przeciwnej (poniżej, gość) liczymy dopełnienie: 1 − cal(1 − p, 1 − p_rynku).
+ * Dzięki temu P(powyżej) + P(poniżej) = 1 także przy wyrazie wolnym a ≠ 0.
+ */
+export function calibrateSide(c: Calibration, pModel: number, pMarket: number | null, complement: boolean): number {
+  if (!complement) return applyCalibration(c, pModel, pMarket);
+  return clampP(1 - applyCalibration(c, 1 - pModel, pMarket === null ? null : 1 - pMarket));
+}
+
 export interface CalRow {
   pModel: number;
   pMarket: number;
