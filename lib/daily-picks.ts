@@ -42,7 +42,7 @@ function ensureTable() {
 
 /** Najlepsze typy dnia: „Najlepsze”/„Dobre”, potem najwyższa szansa (≥ 60%, kurs ≥ 1.50); jeden typ na zawodnika, maks. 5. */
 export function pickTopBets(bets: BetEval[], n = 5): BetEval[] {
-  const ok = (b: BetEval) => b.kind === "player" && b.assessment.category !== "odrzucone" && !b.assessment.risks.some((r) => r.severity === "krytyczne");
+  const ok = (b: BetEval) => b.kind === "player" && b.assessment.category !== "odrzucone" && !b.assessment.risks.some((r) => r.severity === "krytyczne") && !b.assessment.stats?.context.roleSwitchAgainst;
   const rec = bets.filter((b) => ok(b) && (b.assessment.category === "najlepsze" || b.assessment.category === "dobre"));
   const high = bets.filter((b) => ok(b) && b.modelProb >= 0.6 && b.price >= 1.5).sort((x, y) => y.modelProb - x.modelProb);
   const out: BetEval[] = [];

@@ -47,6 +47,8 @@ export function couponCandidates(bets: BetEval[], opts: { onlyPlayable?: boolean
   for (const b of bets) {
     if (b.kind !== "player" || b.assessment.category === "odrzucone") continue;
     if (b.assessment.risks.some((r) => r.severity === "krytyczne")) continue;
+    // zawodnik właśnie zmienił rolę (np. wszedł do piątki) w stronę przeciw zakładowi — za duża niepewność na kupon
+    if (b.assessment.stats?.context.roleSwitchAgainst) continue;
     if (b.modelProb < minProb || b.price < minOdds) continue;
     // marża mnoży się na kuponie — odrzucamy nogi z wyraźnie ujemnym EV
     if (b.ev < (opts.minEv ?? -0.03)) continue;

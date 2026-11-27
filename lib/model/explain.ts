@@ -150,6 +150,7 @@ export function explainProjection(args: {
   const l5Min = n ? mean(played.slice(-5).map((r) => r.min)) : NaN;
   const minWhy: string[] = [];
   if (Number.isFinite(l5Min) && Math.abs(l5Min - seasonMin) >= 2) minWhy.push(`w ostatnich 5 meczach grał ${f1(l5Min)} min`);
+  if (proj.roleSwitch) minWhy.push(proj.roleSwitch.to === "starter" ? `wszedł do pierwszej piątki — ${proj.roleSwitch.games} ostatnie mecze po ${f1(proj.roleSwitch.min)} min` : `wypadł z pierwszej piątki — ${proj.roleSwitch.games} ostatnie mecze po ${f1(proj.roleSwitch.min)} min`);
   if (proj.minutes.b2bFactor < 0.995) minWhy.push("drugi mecz dzień po dniu");
   for (const t of proj.teammateEffects) if (t.method !== "already-absent" && Math.abs(t.minutes) >= 0.5) minWhy.push(`${t.name} nie zagra (${sgn(t.minutes)} min)`);
   steps.push({

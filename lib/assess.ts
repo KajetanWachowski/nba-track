@@ -56,7 +56,7 @@ export interface PlayerStatsBlock {
     home: boolean;
     restDays: number | null;
   };
-  context: { blowoutProb: number; selfStatus: string | null; teammatesOut: string[]; roleChange: string | null };
+  context: { blowoutProb: number; selfStatus: string | null; teammatesOut: string[]; roleChange: string | null; roleSwitchAgainst?: boolean };
   /** „Skąd ta projekcja?” — kroki od średniej sezonu do projekcji */
   explain?: Explanation;
   /** mecze z tym rywalem (ten i poprzedni sezon), od najstarszego */
@@ -254,6 +254,19 @@ export function assessPlayer(x: AssessInput): Assessment {
     else if (helpsOver) risk("istotne", roleChange);
   }
 
+  // zmiana roli (wejście do pierwszej piątki / zejście na ławkę)
+  const rs = x.proj.roleSwitch;
+  if (rs) {
+    const t = rs.to === "starter"
+      ? `Wszedł do pierwszej piątki: ${rs.games} ostatnie mecze w piątce po ${f1(rs.min)} min (wcześniej z ławki).`
+      : `Wypadł z pierwszej piątki: ${rs.games} ostatnie mecze z ławki po ${f1(rs.min)} min.`;
+    const moreMinutes = rs.to === "starter";
+    if (moreMinutes === dir > 0) pros.push(t);
+    else risk("istotne", `${t} Średnie z sezonu nie oddają nowej roli.`);
+    if (rs.returning.length) risk("istotne", `Może wrócić ${rs.returning.join(", ")} — wtedy ${moreMinutes ? "minuty znów spadną" : "rola może się zmienić"}.`);
+    if (!roleChange) roleChange = t;
+  }
+
   // trójki: próby, skuteczność, obrona rywala na obwodzie
   if (x.market === "fg3m" && n >= 5) {
     const d = fg3aL5 - fg3aSeason;
@@ -402,6 +415,12 @@ export function assessPlayer(x: AssessInput): Assessment {
     qf.push({ text: "brak raportu kontuzji", delta: 0 });
   }
 
+  if (rs) {
+    // trafienia z ostatnich meczów i podziały pochodzą głównie z meczów w starej roli
+    const histPro = /^(\d+ z 5 ostatnich|\d+\/10 ostatnich|Przeciw [A-Z]+ \d|U siebie|Na wyjeździe)/;
+    for (let i = 0; i < pros.length; i++)
+      if (histPro.test(pros[i])) pros[i] = `${pros[i].replace(/\.$/, "")} — uwaga: głównie mecze ${rs.to === "starter" ? "z ławki" : "w pierwszej piątce"}, w innej roli niż teraz.`;
+  }
   const stats: PlayerStatsBlock = {
     recent: lastRows(10).map((r) => ({ value: statOf(r, x.market), opp: x.teamAbbrById(r.opp_id), date: r.date, home: !!r.home, min: r.min, hit: isHit(statOf(r, x.market)) })),
     windows,
@@ -423,7 +442,7 @@ export function assessPlayer(x: AssessInput): Assessment {
       gamePace: team ? (x.ctx.teams.get(rows.at(-1)?.team_id ?? "")?.pace ?? x.ctx.lgPace) * team.pace / x.ctx.lgPace : null,
       statFactor, opp3PctAllowed: team?.shooting.fg3PctAllowed ?? null, home: x.home, restDays: x.restDays,
     },
-    context: { blowoutProb: bo.prob, selfStatus: x.selfStatus, teammatesOut: outMates.map((t) => `${t.name} (${t.status})`), roleChange },
+    context: { blowoutProb: bo.prob, selfStatus: x.selfStatus, teammatesOut: outMates.map((t) => `${t.name} (${t.status})`), roleChange, roleSwitchAgainst: !!rs && (rs.to === "starter") !== dir > 0 },
     vsOpp,
     homeAway,
     estimate,

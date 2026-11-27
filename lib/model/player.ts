@@ -82,6 +82,8 @@ export interface PlayerProjection {
   /** probability the game is decided by ≥ threshold points, and the minutes multiplier if it is */
   blowout: { prob: number; factor: number; threshold: number };
   /** prawdopodobny bezpośredni rywal: zawodnik rywala na tej samej pozycji z największą liczbą minut */
+  /** zmiana roli wykryta w ostatnich meczach (do opisu i oceny ryzyka) */
+  roleSwitch: { to: "starter" | "bench"; games: number; min: number; returning: string[] } | null;
   likelyDefender: {
     name: string; min: number; stl: number; blk: number; pf: number; games: number; pos: PosGroup;
     /** przechwyty i bloki na 36 minut vs średnia ligi dla tej pozycji (1 = średnio) */
@@ -109,12 +111,15 @@ export interface ModelParams {
   rateAdj: Partial<Record<StatKey, number>>;
   /** mnożnik siły priora z poprzedniego sezonu, gdy rola wyraźnie się zmieniła (minuty ±20%); 1 = wyłączone */
   roleShrink?: number;
+  /** waga meczów po zmianie roli (wejście do pierwszej piątki / zejście na ławkę); 0 = wyłączone */
+  roleSwitch?: number;
 }
 
 export const DEFAULT_PARAMS: ModelParams = {
   priorStrength: 300, posPriorStrength: 150, rateHalfLife: 12, minHalfLife: 4, minRecentWeight: 0.5, minutesAdj: 1, rateAdj: {},
 };
 
+const f1 = (x: number) => (Number.isFinite(x) ? x.toFixed(1) : "—");
 const sumBy = <T>(xs: T[], f: (x: T, i: number) => number) => xs.reduce((s, x, i) => s + f(x, i), 0);
 
 export function playedGames(rows: PlayerGameRow[]): PlayerGameRow[] {
@@ -153,10 +158,56 @@ export function projectPlayer(ctx: LeagueContext, athleteId: string, g: PlayerGa
     baseMin = priorMin;
     warnings.push("brak meczów w tym sezonie — projekcja tylko z poprzedniego sezonu");
   }
+  // ---- zmiana roli: ≥ 2 ostatnie mecze w pierwszej piątce po grze z ławki (albo odwrotnie) ----
+  // Średnie minuty z całego sezonu nie nadążają, gdy rezerwowy wskakuje do piątki (np. za kontuzjowanego
+  // podstawowego). Minuty z meczów w nowej roli dostają wtedy dużą wagę, chyba że zastępowany gracz wraca.
+  let roleSwitch: { to: "starter" | "bench"; games: number; min: number; returning: string[] } | null = null;
+  let roleMix: { w: number; m0: number } | null = null; // waga nowej roli i minuty „po staremu”
+  const roleW = P.roleSwitch ?? 0.5; // 0.5 wybrane w backteście (najmniejszy błąd minut i najlepsza trafialność)
+  if (roleW > 0 && n >= 4) {
+    const firstRole = !!rev[0].starter;
+    let k = 0;
+    while (k < rev.length && !!rev[k].starter === firstRole) k++;
+    const before = rev.slice(k, k + 8);
+    const beforeRate = before.length ? before.filter((r) => r.starter).length / before.length : null;
+    const switched = k >= 2 && k <= 6 && beforeRate !== null && before.length >= 3 && (firstRole ? beforeRate <= 0.25 : beforeRate >= 0.75);
+    if (switched) {
+      const roleMin = mean(rev.slice(0, k).map((r) => r.min));
+      // kto grał w piątce przed zmianą, a w meczach po zmianie nie grał — i czy dziś wraca
+      const teamId = rev[0].team_id;
+      const absentNow = new Set((g.absences ?? []).filter((a) => a.pOut >= 0.5).map((a) => a.athleteId));
+      const streakIds = new Set(rev.slice(0, k).map((r) => r.game_id));
+      const missing = new Map<string, string>();
+      for (const r of before) for (const m of ctx.gamePlayers(r.game_id)) if (m.team_id === teamId && m.starter && !m.dnp && m.athlete_id !== athleteId) missing.set(m.athlete_id, m.name);
+      for (const gid of streakIds) for (const m of ctx.gamePlayers(gid)) if (m.team_id === teamId && !m.dnp && m.min > 0) missing.delete(m.athlete_id);
+      const returning = firstRole ? [...missing].filter(([id]) => !absentNow.has(id)).map(([, nm]) => nm) : [];
+      const w = (k / (k + 1)) * roleW * (returning.length ? 0.3 : 1);
+      if (Math.abs(roleMin - baseMin) >= 3) {
+        roleMix = { w, m0: baseMin };
+        baseMin = w * roleMin + (1 - w) * baseMin;
+        roleSwitch = { to: firstRole ? "starter" : "bench", games: k, min: roleMin, returning };
+        notes.push(
+          firstRole
+            ? `wszedł do pierwszej piątki: ${k} ostatnie mecze w piątce po ${f1(roleMin)} min — model przyjmuje głównie te minuty`
+            : `wypadł z pierwszej piątki: ${k} ostatnie mecze z ławki po ${f1(roleMin)} min`,
+        );
+        if (returning.length) warnings.push(`może wrócić ${returning.join(", ")} — wtedy rola i minuty mogą znów spaść`);
+      }
+    }
+  }
   const devs = rev.map((r, i) => wMin[i] * (r.min - recentMin) ** 2);
   const minVarObs = n >= 2 ? sumBy(devs, (x) => x) / wSum : 25;
   let minSd = Math.sqrt((minVarObs * n + 25 * 4) / (n + 4)); // shrink toward 5-minute sd
   minSd = Math.max(3, minSd);
+  if (roleSwitch && roleMix) {
+    // minuty to mieszanka dwóch scenariuszy: nowa rola (waga w) albo powrót do starej —
+    // wariancja mieszanki = średnia wariancji + rozrzut między średnimi scenariuszy
+    const rm = rev.slice(0, roleSwitch.games).map((r) => r.min);
+    const v1 = rm.length >= 2 ? rm.reduce((a, x) => a + (x - roleSwitch!.min) ** 2, 0) / (rm.length - 1) : 25;
+    const s1 = Math.sqrt((v1 * rm.length + 25 * 4) / (rm.length + 4));
+    const { w, m0 } = roleMix;
+    minSd = Math.max(3, Math.sqrt(w * s1 ** 2 + (1 - w) * minSd ** 2 + w * (1 - w) * (roleSwitch.min - m0) ** 2));
+  }
 
   const b2b = g.restDays === 0;
   const b2bFactor = b2b ? ctx.b2bMinutes.factor : 1;
@@ -462,6 +513,7 @@ export function projectPlayer(ctx: LeagueContext, athleteId: string, g: PlayerGa
     blowout: { prob: boProb, factor: boFactor, threshold: bo.threshold },
     likelyDefender,
     oppMissing,
+    roleSwitch,
   };
 }
 
