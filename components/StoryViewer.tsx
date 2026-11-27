@@ -386,9 +386,9 @@ function slides(d: StoryData): Slide[] {
 
   // 07 historia z rywalem
   const vs = d.vsOpp.slice(-3);
-  const prevVs = (b.assessment.stats?.vsOpp ?? []).slice(-3);
+  const prevVs = (b.assessment.stats?.vsOpp ?? []).filter((v) => !v.otherRole).slice(-3);
   if (vs.length || prevVs.length) {
-    const list = vs.length ? vs.map((g) => ({ value: g.value, hit: g.hit, fgm: g.fgm, fga: g.fga, min: g.min, when: shortDay(g.date) })) : prevVs.map((v) => ({ value: v.value, hit: v.hit, fgm: 0, fga: 0, min: 0, when: v.season === "ten" ? shortDay(v.date) : "POPRZ. SEZON" }));
+    const list = vs.length ? vs.map((g) => ({ value: g.value, hit: g.hit, fgm: g.fgm, fga: g.fga, min: g.min, when: shortDay(g.date) })) : prevVs.map((v) => ({ value: v.value, hit: v.hit, fgm: 0, fga: 0, min: v.min ?? 0, when: v.season === "ten" ? shortDay(v.date) : "POPRZ. SEZON" }));
     const hr = list.filter((x) => x.hit).length / list.length;
     out.push({
       key: "historia", kicker: "HISTORIA", a: `${d.player.last} VS`, b: d.opp?.abbr ?? b.oppAbbr,

@@ -427,7 +427,8 @@ export function projectPlayer(ctx: LeagueContext, athleteId: string, g: PlayerGa
   // ---------------- head-to-head residual (very weak) ----------------
   const h2hRows = [
     ...rev.filter((r) => r.opp_id === g.oppId).map((r) => ({ r, cur: true })),
-    ...prior.filter((r) => r.oppId === g.oppId).map((r) => ({ r, cur: false })),
+    // mecze z poprzedniego sezonu tylko w obecnej drużynie (w innej drużynie inna rola i styl gry)
+    ...prior.filter((r) => r.oppId === g.oppId && (!r.teamId || r.teamId === g.teamId)).map((r) => ({ r, cur: false })),
   ];
   if (h2hRows.length) {
     for (const s of BASE_STATS) {

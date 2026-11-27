@@ -60,7 +60,10 @@ export interface PlayerStatsBlock {
   /** „Skąd ta projekcja?” — kroki od średniej sezonu do projekcji */
   explain?: Explanation;
   /** mecze z tym rywalem (ten i poprzedni sezon), od najstarszego */
-  vsOpp: { value: number; date: string; season: "ten" | "poprzedni"; hit: boolean }[];
+  /** min — minuty w tamtym meczu; otherRole — minuty wyraźnie inne niż teraz (nie liczy się do bilansu) */
+  vsOpp: { value: number; date: string; season: "ten" | "poprzedni"; hit: boolean; min?: number; otherRole?: boolean }[];
+  /** mecze z rywalem pominięte, bo zawodnik grał wtedy w innej drużynie */
+  vsOppOtherTeam?: number;
   /** wyniki u siebie / na wyjeździe w tym sezonie */
   homeAway: { home: { n: number; hits: number; avg: number }; away: { n: number; hits: number; avg: number } };
   /** model vs linia bukmachera vs najlepszy szacunek (łączony z wagą z backtestu) */
@@ -330,19 +333,29 @@ export function assessPlayer(x: AssessInput): Assessment {
   }
 
   // historia z tym rywalem i dom/wyjazd
+  // mecze z tym rywalem: ten sezon + poprzedni (tylko w obecnej drużynie). Mecze przy wyraźnie innych
+  // minutach niż teraz (inna rola) są pokazywane, ale nie liczą się do bilansu.
+  const curTeam = played.at(-1)?.team_id ?? "";
+  const projMinNow = x.proj.minutes.mean;
+  const otherRole = (m: number) => projMinNow > 0 && (m < 0.6 * projMinNow || m > 1.5 * projMinNow);
+  const priorVs = (x.prior ?? []).filter((r) => r.oppId === x.oppId && r.min > 0);
+  const priorSameTeam = priorVs.filter((r) => !r.teamId || !curTeam || r.teamId === curTeam);
   const vsOpp: PlayerStatsBlock["vsOpp"] = [
-    ...(x.prior ?? []).filter((r) => r.oppId === x.oppId && r.min > 0).map((r) => {
+    ...priorSameTeam.map((r) => {
       const v = statOf(r as unknown as Pick<PlayerGameRow, StatKey>, x.market);
-      return { value: v, date: r.date, season: "poprzedni" as const, hit: isHit(v) };
+      return { value: v, date: r.date, season: "poprzedni" as const, hit: isHit(v), min: Math.round(r.min), otherRole: otherRole(r.min) };
     }),
-    ...played.filter((r) => r.opp_id === x.oppId).map((r) => ({ value: statOf(r, x.market), date: r.date, season: "ten" as const, hit: isHit(statOf(r, x.market)) })),
+    ...played.filter((r) => r.opp_id === x.oppId).map((r) => ({ value: statOf(r, x.market), date: r.date, season: "ten" as const, hit: isHit(statOf(r, x.market)), min: Math.round(r.min), otherRole: otherRole(r.min) })),
   ].sort((a, b) => a.date.localeCompare(b.date));
-  if (x.side !== "yes" && vsOpp.length >= 3) {
-    const h = vsOpp.filter((v) => v.hit).length;
-    const vals = vsOpp.map((v) => v.value).join(", ");
-    if (h / vsOpp.length <= 0.34) risk("drobne", `Przeciw ${x.oppAbbr} tylko ${h}/${vsOpp.length} meczów ${sideWord} linii (${vals}).`);
-    else if (h / vsOpp.length >= 0.75) pros.push(`Przeciw ${x.oppAbbr} ${h}/${vsOpp.length} meczów ${sideWord} linii (${vals}).`);
+  const vsComparable = vsOpp.filter((v) => !v.otherRole);
+  if (x.side !== "yes" && vsComparable.length >= 3) {
+    const h = vsComparable.filter((v) => v.hit).length;
+    const vals = vsComparable.map((v) => `${v.value} w ${v.min} min`).join(", ");
+    const note = vsComparable.length < vsOpp.length ? ` — liczone tylko mecze przy podobnych minutach jak teraz` : "";
+    if (h / vsComparable.length <= 0.34) risk("drobne", `Przeciw ${x.oppAbbr} tylko ${h}/${vsComparable.length} meczów ${sideWord} linii (${vals})${note}.`);
+    else if (h / vsComparable.length >= 0.75) pros.push(`Przeciw ${x.oppAbbr} ${h}/${vsComparable.length} meczów ${sideWord} linii (${vals})${note}.`);
   }
+  const vsOppOtherTeam = priorVs.length - priorSameTeam.length;
   const split = (rs: PlayerGameRow[]) => {
     const vs = rs.map((r) => statOf(r, x.market));
     return { n: vs.length, hits: vs.filter(isHit).length, avg: mean(vs) };
@@ -444,6 +457,7 @@ export function assessPlayer(x: AssessInput): Assessment {
     },
     context: { blowoutProb: bo.prob, selfStatus: x.selfStatus, teammatesOut: outMates.map((t) => `${t.name} (${t.status})`), roleChange, roleSwitchAgainst: !!rs && (rs.to === "starter") !== dir > 0 },
     vsOpp,
+    vsOppOtherTeam,
     homeAway,
     estimate,
     likelyDefender: x.proj.likelyDefender ?? null,

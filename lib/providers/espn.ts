@@ -521,6 +521,8 @@ export interface SeasonLogGame {
   gameId: string;
   date: string;
   oppId: string;
+  /** drużyna zawodnika w tym meczu (po transferze może być inna niż teraz) */
+  teamId: string;
   home: boolean;
   min: number;
   pts: number; reb: number; ast: number; fg3m: number; fg3a: number; fga: number; fgm: number; stl: number; blk: number; tov: number;
@@ -549,6 +551,7 @@ export async function fetchSeasonLog(athleteId: string, season: number): Promise
         gameId: String(e.eventId),
         date: meta.gameDate,
         oppId: String(meta.opponent?.id ?? ""),
+        teamId: String(meta.team?.id ?? ""),
         home: meta.atVs !== "@",
         min: g("minutes"),
         pts: g("points"),

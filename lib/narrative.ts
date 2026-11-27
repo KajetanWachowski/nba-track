@@ -120,9 +120,10 @@ export function buildNarrative(b: BetEval): Narrative {
   const coverage: Narrative["coverage"] = [];
   if (s) {
     for (const w of s.windows) coverage.push({ label: w.label, value: `${w.hits}/${w.n}`, tone: rateTone(w.hits, w.n) });
-    if (s.vsOpp.length) {
-      const h = s.vsOpp.filter((v) => v.hit).length;
-      coverage.push({ label: `Vs ${b.oppAbbr}`, value: `${h}/${s.vsOpp.length}`, tone: rateTone(h, s.vsOpp.length) });
+    const vsC = s.vsOpp.filter((v) => !v.otherRole);
+    if (vsC.length) {
+      const h = vsC.filter((v) => v.hit).length;
+      coverage.push({ label: `Vs ${b.oppAbbr}`, value: `${h}/${vsC.length}`, tone: rateTone(h, vsC.length) });
     }
     const ha = s.matchup.home ? s.homeAway.home : s.homeAway.away;
     if (ha.n) coverage.push({ label: s.matchup.home ? "U siebie" : "Na wyjeździe", value: `${ha.hits}/${ha.n}`, tone: rateTone(ha.hits, ha.n) });

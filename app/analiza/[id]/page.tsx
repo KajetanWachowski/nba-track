@@ -179,9 +179,23 @@ export default async function AnalysisPage({ params }: { params: Promise<{ id: s
         )}
 
         {s && s.vsOpp.length > 0 && (
-          <ChartCard title={`Mecze z ${b.oppAbbr}`} sub="Ten i poprzedni sezon.">
+          <ChartCard title={`Mecze z ${b.oppAbbr}`} sub="Ten i poprzedni sezon (tylko w obecnej drużynie). Najedź na słupek — zobaczysz minuty.">
             <LineBarChart height={200} line={b.line} side={side}
-              data={s.vsOpp.map((v, i) => ({ key: `${v.date}-${i}`, value: v.value, label: shortDate(v.date), tooltip: [`vs ${b.oppAbbr} · ${shortDate(v.date)} (${v.season === "ten" ? "ten sezon" : "poprzedni sezon"})`, `${b.marketLabel}: ${v.value} (${v.hit ? "trafione" : "nietrafione"})`] }))} />
+              data={s.vsOpp.map((v, i) => ({
+                key: `${v.date}-${i}`, value: v.value, label: shortDate(v.date), dim: v.otherRole,
+                tooltip: [
+                  `vs ${b.oppAbbr} · ${shortDate(v.date)} (${v.season === "ten" ? "ten sezon" : "poprzedni sezon"})`,
+                  `${b.marketLabel}: ${v.value} (${v.hit ? "trafione" : "nietrafione"})`,
+                  v.min !== undefined ? `${v.min} min (teraz model zakłada ok. ${Math.round(s.minutes.projected)} min)` : "",
+                  v.otherRole ? "Inna rola (inne minuty) — nie liczy się do bilansu" : "",
+                ].filter(Boolean),
+              }))} />
+            {(s.vsOpp.some((v) => v.otherRole) || (s.vsOppOtherTeam ?? 0) > 0) && (
+              <p className="mt-2 text-[11px] text-ink-3">
+                {s.vsOpp.some((v) => v.otherRole) && "Przygaszone słupki: mecze przy wyraźnie innych minutach niż teraz (inna rola) — nie liczą się do bilansu. "}
+                {(s.vsOppOtherTeam ?? 0) > 0 && `Pominięto ${s.vsOppOtherTeam} mecz(e) z poprzedniego sezonu, gdy grał w innej drużynie.`}
+              </p>
+            )}
           </ChartCard>
         )}
 

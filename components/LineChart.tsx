@@ -7,6 +7,8 @@ export interface BarDatum {
   label: string; // x-axis label (e.g. opponent)
   logo?: string;
   tooltip: string[];
+  /** przygaszony słupek (np. mecz w innej roli — nie liczy się do bilansu) */
+  dim?: boolean;
 }
 
 /**
@@ -55,7 +57,7 @@ export function LineBarChart({ data, line, height = 260, showValues, side = "ove
               <path
                 d={`M${x},${y(0)} V${top + r} Q${x},${top} ${x + r},${top} H${x + bw - r} Q${x + bw},${top} ${x + bw},${top + r} V${y(0)} Z`}
                 fill={over ? "var(--pos)" : "var(--muted-bar)"}
-                opacity={hover === null || hover === i ? 1 : 0.55}
+                opacity={(hover === null || hover === i ? 1 : 0.55) * (d.dim ? 0.35 : 1)}
               />
               {labels && (
                 <text x={x + bw / 2} y={top - 6} textAnchor="middle" fontSize={13} fontWeight={800} fill="var(--ink)" className="num">{fmt(d.value)}</text>
@@ -82,7 +84,11 @@ export function LineBarChart({ data, line, height = 260, showValues, side = "ove
       {hover !== null && data[hover] && (
         <div
           className="pointer-events-none absolute z-10 rounded-lg border border-line bg-surface-2 px-3 py-2 text-xs shadow-lg"
-          style={{ left: `${((pad.l + hover * slot + slot / 2) / W) * 100}%`, top: 24, transform: "translateX(-50%)" }}
+          style={(() => {
+            // przy brzegach wykresu dymek nie może wychodzić poza kartę
+            const f = (pad.l + hover * slot + slot / 2) / W;
+            return { left: `${f * 100}%`, top: 24, transform: `translateX(${f < 0.3 ? -10 : f > 0.7 ? -90 : -50}%)`, maxWidth: "min(18rem, 90vw)" };
+          })()}
         >
           {data[hover].tooltip.map((t, i) => <div key={i} className={i === 0 ? "font-semibold text-ink" : "text-ink-2"}>{t}</div>)}
         </div>
