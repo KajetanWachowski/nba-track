@@ -175,13 +175,16 @@ export function projectPlayer(ctx: LeagueContext, athleteId: string, g: PlayerGa
       const roleMin = mean(rev.slice(0, k).map((r) => r.min));
       // kto grał w piątce przed zmianą, a w meczach po zmianie nie grał — i czy dziś wraca
       const teamId = rev[0].team_id;
-      const absentNow = new Set((g.absences ?? []).filter((a) => a.pOut >= 0.5).map((a) => a.athleteId));
+      const pOutNow = new Map((g.absences ?? []).map((a) => [a.athleteId, a.pOut]));
       const streakIds = new Set(rev.slice(0, k).map((r) => r.game_id));
       const missing = new Map<string, string>();
       for (const r of before) for (const m of ctx.gamePlayers(r.game_id)) if (m.team_id === teamId && m.starter && !m.dnp && m.athlete_id !== athleteId) missing.set(m.athlete_id, m.name);
       for (const gid of streakIds) for (const m of ctx.gamePlayers(gid)) if (m.team_id === teamId && !m.dnp && m.min > 0) missing.delete(m.athlete_id);
-      const returning = firstRole ? [...missing].filter(([id]) => !absentNow.has(id)).map(([, nm]) => nm) : [];
-      const w = (k / (k + 1)) * roleW * (returning.length ? 0.3 : 1);
+      // szansa, że zastępowany gracz dalej nie zagra: OUT ≈ 1, wątpliwy ≈ 0.35–0.75, brak w raporcie (wraca) = 0
+      const stillOut = firstRole && missing.size ? Math.max(...[...missing.keys()].map((id) => pOutNow.get(id) ?? 0)) : 1;
+      const returning = firstRole ? [...missing].filter(([id]) => (pOutNow.get(id) ?? 0) < 0.5).map(([, nm]) => nm) : [];
+      // potwierdzony powrót → zostaje tylko niewielka szansa, że trener utrzyma nowy skład
+      const w = (k / (k + 1)) * roleW * (0.25 + 0.75 * stillOut);
       if (Math.abs(roleMin - baseMin) >= 3) {
         roleMix = { w, m0: baseMin };
         baseMin = w * roleMin + (1 - w) * baseMin;

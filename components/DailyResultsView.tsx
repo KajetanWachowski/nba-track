@@ -6,6 +6,7 @@ import { dailyResults, summarize, type LegResult, type LegStatus, type SetResult
 import { SET_ORDER, SET_TITLE } from "@/lib/daily-picks";
 import { dayLabel, tipTime } from "@/lib/format";
 import { getTeams } from "@/lib/store";
+import type { BetEval } from "@/lib/engine";
 
 const n1 = (x: number) => (Number.isInteger(x) ? String(x) : x.toFixed(1));
 const BADGE: Record<LegStatus, { label: string; cls: string }> = {
@@ -19,7 +20,29 @@ const BORDER: Record<LegStatus, string> = { oczekuje: "border-line", live: "bord
 
 
 /** Archiwum typów dnia i kuponów z wynikami (na żywo i po meczu). */
-export async function DailyResultsView() {
+/**
+ * Co zmieniło się od zapisania typu (przed meczem): nowy status zawodnika, powrót kolegi, ruch szansy.
+ * Kupon po zamrożeniu się nie zmienia, ale użytkownik widzi, że np. zawodnik ma teraz status OUT.
+ */
+type Change = { tone: "neg" | "warn" | "pos"; text: string };
+function changeFor(saved: BetEval, current: BetEval[]): Change | null {
+  const now = current.find((b) => b.id === saved.id)
+    ?? current.find((b) => b.gameId === saved.gameId && b.subjectId === saved.subjectId && b.market === saved.market && b.side === saved.side);
+  if (!now) return { tone: "warn", text: "Tego typu nie ma już w ofercie bukmachera (zmiana linii albo zawodnik może nie zagrać) — sprawdź przed meczem." };
+  const st = (now.assessment.stats?.context.selfStatus ?? "").toUpperCase();
+  if (["OUT", "DOUBTFUL"].includes(st)) return { tone: "neg", text: `Zawodnik ma teraz status ${st === "OUT" ? "OUT (nie zagra) — typ zostanie zwrócony" : "DOUBTFUL (raczej nie zagra)"}.` };
+  if (["QUESTIONABLE", "DAY-TO-DAY"].includes(st)) return { tone: "warn", text: "Zawodnik ma teraz niepewny status — sprawdź skład przed meczem." };
+  const oldRisks = new Set(saved.assessment.risks.map((x) => x.text));
+  const fresh = now.assessment.risks.find((x) => x.severity !== "drobne" && !oldRisks.has(x.text));
+  const lineNote = now.line !== saved.line ? ` Linia zmieniła się z ${saved.line} na ${now.line}.` : "";
+  const d = now.modelProb - saved.modelProb;
+  if (d <= -0.05) return { tone: "neg", text: `Szansa spadła z ${Math.round(saved.modelProb * 100)}% do ${Math.round(now.modelProb * 100)}%.${fresh ? ` Powód: ${fresh.text}` : ""}${lineNote}` };
+  if (d >= 0.05) return { tone: "pos", text: `Szansa wzrosła z ${Math.round(saved.modelProb * 100)}% do ${Math.round(now.modelProb * 100)}%.${lineNote}` };
+  if (fresh) return { tone: "warn", text: `Nowa informacja: ${fresh.text}` };
+  return null;
+}
+
+export async function DailyResultsView({ current = [] }: { current?: BetEval[] }) {
   const results = await dailyResults(14);
   const anyLive = results.some((r) => r.legs.some((l) => l.gameState === "in"));
   const sum = summarize(results);
@@ -47,7 +70,7 @@ export async function DailyResultsView() {
         <section key={day} className="mb-8">
           <h3 className="mb-3 text-base font-black capitalize">{dayLabel(day)}</h3>
           <div className="grid gap-4 lg:grid-cols-2">
-            {results.filter((r) => r.set.day === day).map((r) => <SetCard key={r.set.kind} r={r} logo={logo} />)}
+            {results.filter((r) => r.set.day === day).map((r) => <SetCard key={r.set.kind} r={r} logo={logo} current={current} />)}
           </div>
         </section>
       ))}
@@ -65,7 +88,7 @@ function Tile({ label, value, sub, tone }: { label: string; value: string; sub: 
   );
 }
 
-function SetCard({ r, logo }: { r: SetResult; logo: (a: string) => string | undefined }) {
+function SetCard({ r, logo, current }: { r: SetResult; logo: (a: string) => string | undefined; current: BetEval[] }) {
   const isCoupon = r.set.kind !== "typy";
   return (
     <article className={`overflow-hidden rounded-2xl border-2 bg-surface ${isCoupon ? BORDER[r.status] : "border-line"}`}>
@@ -82,13 +105,13 @@ function SetCard({ r, logo }: { r: SetResult; logo: (a: string) => string | unde
         )}
       </div>
       <ol className="divide-y divide-line border-t border-line">
-        {r.legs.map((l) => <LegRow key={l.bet.id} l={l} logo={logo} />)}
+        {r.legs.map((l) => <LegRow key={l.bet.id} l={l} logo={logo} change={l.gameState === "pre" && current.length ? changeFor(l.bet, current) : null} />)}
       </ol>
     </article>
   );
 }
 
-function LegRow({ l, logo }: { l: LegResult; logo: (a: string) => string | undefined }) {
+function LegRow({ l, logo, change }: { l: LegResult; logo: (a: string) => string | undefined; change: Change | null }) {
   const b = l.bet;
   const line = b.line ?? 0;
   const over = b.side !== "under";
@@ -110,6 +133,11 @@ function LegRow({ l, logo }: { l: LegResult; logo: (a: string) => string | undef
         </div>
         <span className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-bold ${BADGE[l.status].cls}`}>{BADGE[l.status].label}</span>
       </div>
+      {change && (
+        <p className={`mt-1.5 rounded-md px-2 py-1 text-[11px] font-semibold ${change.tone === "neg" ? "bg-neg-soft text-neg" : change.tone === "pos" ? "bg-pos-soft text-pos" : "bg-warn-soft text-warn"}`}>
+          {change.tone === "pos" ? "▲" : "⚠"} Zmiana od zapisania: {change.text}
+        </p>
+      )}
       {v !== null && l.status !== "zwrot" && (
         <div className="mt-2 flex items-center gap-2">
           <div className="relative h-2.5 flex-1 rounded bg-surface-2">

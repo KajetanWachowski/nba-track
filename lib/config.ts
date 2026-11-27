@@ -25,7 +25,7 @@ export const config = {
   ttl: {
     scoreboardToday: 120,
     propsLive: 300,
-    injuries: 600,
+    injuries: 300, // raport kontuzji: co 5 min (powroty i nagłe absencje przed meczem)
     roster: 6 * 3600,
     teams: 7 * 86400,
     priorSeasonLog: 30 * 86400,

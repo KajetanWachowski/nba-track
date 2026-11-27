@@ -85,7 +85,7 @@ export default async function CouponsPage({ searchParams }: { searchParams: Prom
 
       <section id="wyniki" className="mt-10 scroll-mt-4">
         <h2 className="mb-3 text-lg font-black">Wyniki</h2>
-        <DailyResultsView />
+        <DailyResultsView current={a.bets} />
       </section>
 
       {hist && (
